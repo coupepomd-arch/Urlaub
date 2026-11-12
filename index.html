@@ -37,6 +37,7 @@
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
     font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   body { display: flex; flex-direction: column; }
@@ -112,7 +113,35 @@
   #gross-foto .pfeil { top: 50%; transform: translateY(-50%); }
   #gross-foto .zurueck { left: 10px; } #gross-foto .vor { right: 10px; }
   #hinweis { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 1500; background: var(--text); color: var(--bg);
-    padding: 10px 16px; border-radius: 999px; font-weight: 600; box-shadow: var(--schatten); display: none; cursor: pointer; }
+    padding: 10px 16px; border-radius: 999px; font-weight: 600; box-shadow: var(--schatten); display: none; cursor: pointer;
+    max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #kommentare { margin-top: 14px; }
+  #kommentare h2 { font-size: 13px; font-weight: 600; color: var(--leise); margin: 0 0 6px; }
+  #k-liste { display: grid; gap: 8px; max-height: 260px; overflow-y: auto; margin-bottom: 8px; }
+  #k-liste:empty::before { content: "Noch keine Kommentare. Schreib den ersten! 👋"; color: var(--leise); font-size: 14px; }
+  .k { background: var(--bg); border-radius: 12px; padding: 8px 10px; display: flex; gap: 10px; align-items: flex-start; }
+  .k.fahrer { background: color-mix(in srgb, var(--akzent) 14%, var(--bg)); }
+  .k .inhalt { flex: 1; min-width: 0; }
+  .k b { font-size: 14px; }
+  .k small { color: var(--leise); font-size: 12px; margin-left: 6px; }
+  .k p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .k .mini { flex: none; width: 40px; height: 40px; border-radius: 8px; overflow: hidden; border: 0; padding: 0; cursor: pointer; background: var(--linie); }
+  .k .mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #k-form input { width: 100%; border: 1px solid var(--linie); border-radius: 12px; padding: 11px 12px; font: inherit; background: var(--karte); color: var(--text); }
+  .k-zeile { display: flex; gap: 8px; }
+  .k-zeile input { flex: 1; min-width: 0; }
+  .k-zeile button, #k-als button { border: 0; border-radius: 12px; padding: 0 16px; font: inherit; font-weight: 600; background: var(--akzent); color: #fff; cursor: pointer; }
+  #k-als { font-size: 13px; color: var(--leise); margin: 0 0 6px; }
+  #k-als button { background: none; color: var(--akzent); padding: 0; font-weight: 600; }
+  #k-name { margin-bottom: 8px; }
+  #k-foto { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--leise); margin-bottom: 6px; }
+  #k-foto img { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; }
+  #k-foto button { border: 0; background: none; color: var(--leise); font-size: 16px; cursor: pointer; }
+  #k-fehler { color: var(--rot); font-size: 13px; }
+  #gross-foto .k-knopf { margin-top: 10px; border: 0; border-radius: 999px; padding: 9px 16px; font: inherit; font-weight: 600; background: rgba(255,255,255,.18); color: #fff; cursor: pointer; }
+  #gross-foto .foto-k { margin-top: 8px; font-size: 14px; color: #ddd; text-align: left; max-height: 120px; overflow-y: auto; }
+  #gross-foto .foto-k div { margin-top: 3px; }
+  @media (max-width: 899px) { #panel { max-height: 58vh; overflow-y: auto; } }
   #meldung { position: fixed; inset: 0; z-index: 1000; display: none; place-items: center; background: var(--bg); padding: 24px; text-align: center; }
   #meldung.zeigen { display: grid; }
   #meldung div { max-width: 360px; }
@@ -143,6 +172,20 @@
     <div class="wert"><b id="w-akku">–</b><small>Handy-Akku</small></div>
   </div>
   <div id="fotos"><h2 id="fotos-titel">Fotos</h2><div id="fotoleiste"></div></div>
+  <div id="kommentare">
+    <h2 id="k-titel">💬 Kommentare</h2>
+    <div id="k-liste"></div>
+    <form id="k-form" autocomplete="off">
+      <div id="k-foto" hidden><img alt=""><span>Kommentar zu diesem Foto</span><button type="button" aria-label="Foto entfernen">✕</button></div>
+      <p id="k-als" hidden>als <b id="k-als-name"></b> · <button type="button" id="k-name-aendern">ändern</button></p>
+      <input id="k-name" maxlength="40" placeholder="Dein Name" aria-label="Dein Name">
+      <div class="k-zeile">
+        <input id="k-text" maxlength="500" placeholder="Kommentar schreiben …" aria-label="Kommentar">
+        <button type="submit">Senden</button>
+      </div>
+      <small id="k-fehler"></small>
+    </form>
+  </div>
   <div class="knoepfe">
     <button id="folgen" class="an" type="button">📍 Folgen</button>
     <button id="ganze" type="button">🗺️ Ganze Strecke</button>
@@ -154,7 +197,9 @@
   <button class="pfeil zurueck" type="button" aria-label="Vorheriges Foto">‹</button>
   <button class="pfeil vor" type="button" aria-label="Nächstes Foto">›</button>
   <img alt="">
-  <div class="unter"><div class="text"></div><small class="zeit"></small></div>
+  <div class="unter"><div class="text"></div><small class="zeit"></small>
+    <div class="foto-k"></div>
+    <button class="k-knopf" type="button">💬 Kommentieren</button></div>
 </div>
 <div id="hinweis">📷 Neues Foto</div>
 <div id="meldung"><div><div style="font-size:48px">🏍️</div><h1 id="m-titel"></h1><p id="m-text"></p></div></div>
@@ -210,6 +255,10 @@
   const fotoMarker = {};   // id -> Leaflet-Marker
   let ersterAbruf = true;
   const fotoGruppe = L.layerGroup().addTo(karte);
+  let kCursor = 0;
+  let kommentare = [];
+  const eigeneKommentare = new Set();
+  let kFoto = null;
 
   // ---------- Hilfsfunktionen ----------
   const rad = (g) => g * Math.PI / 180;
@@ -401,6 +450,7 @@
     box.querySelector("img").src = fotoUrl(f.id, false);
     box.querySelector(".text").textContent = f.titel || "";
     box.querySelector(".zeit").textContent = uhr(f.t) + " Uhr";
+    fotoKommentareZeigen();
     box.querySelector(".zurueck").style.visibility = i > 0 ? "visible" : "hidden";
     box.querySelector(".vor").style.visibility = i < liste.length - 1 ? "visible" : "hidden";
     box.classList.add("zeigen");
@@ -421,11 +471,106 @@
     if (e.key === "ArrowLeft") fotoBlaettern(-1);
     if (e.key === "ArrowRight") fotoBlaettern(1);
   });
+  // ---------- Kommentare ----------
+  function fotoKommentareZeigen() {
+    const box = $("gross-foto").querySelector(".foto-k");
+    box.textContent = "";
+    for (const k of kommentare.filter((k) => k.foto_id === aktuellesFoto)) {
+      const d = document.createElement("div");
+      const b = document.createElement("b"); b.textContent = (k.fahrer ? "🏍️ " : "") + k.name + ": ";
+      d.append(b, document.createTextNode(k.text));
+      box.appendChild(d);
+    }
+  }
+  function kommentareZeichnen() {
+    const liste = $("k-liste");
+    const unten = liste.scrollHeight - liste.scrollTop - liste.clientHeight < 40;
+    liste.textContent = "";
+    for (const k of kommentare) {
+      const el = document.createElement("div");
+      el.className = "k" + (k.fahrer ? " fahrer" : "");
+      if (k.foto_id) {
+        const m = document.createElement("button");
+        m.type = "button"; m.className = "mini"; m.title = "Foto ansehen";
+        const img = document.createElement("img"); img.alt = "Foto"; img.loading = "lazy"; img.src = fotoUrl(k.foto_id, true);
+        m.appendChild(img); m.onclick = () => fotoZeigen(k.foto_id);
+        el.appendChild(m);
+      }
+      const inhalt = document.createElement("div"); inhalt.className = "inhalt";
+      const b = document.createElement("b"); b.textContent = (k.fahrer ? "🏍️ " : "") + k.name;
+      const s = document.createElement("small"); s.textContent = uhr(k.t);
+      const p = document.createElement("p"); p.textContent = k.text;
+      inhalt.append(b, s, p);
+      el.appendChild(inhalt);
+      liste.appendChild(el);
+    }
+    if (unten) liste.scrollTop = liste.scrollHeight;
+    $("k-titel").textContent = "💬 Kommentare" + (kommentare.length ? " (" + kommentare.length + ")" : "");
+    if ($("gross-foto").classList.contains("zeigen")) fotoKommentareZeigen();
+  }
+
+  let meinName = "";
+  try { meinName = localStorage.getItem("kommentarName") || ""; } catch (e) {}
+  function nameAnzeigen() {
+    $("k-name").hidden = !!meinName;
+    $("k-als").hidden = !meinName;
+    $("k-als-name").textContent = meinName;
+  }
+  nameAnzeigen();
+  $("k-name-aendern").onclick = () => { $("k-name").value = meinName; meinName = ""; nameAnzeigen(); $("k-name").focus(); };
+
+  function kFotoSetzen(id) {
+    kFoto = id;
+    $("k-foto").hidden = !id;
+    if (id) $("k-foto").querySelector("img").src = fotoUrl(id, true);
+  }
+  $("k-foto").querySelector("button").onclick = () => kFotoSetzen(null);
+  $("gross-foto").querySelector(".k-knopf").onclick = (e) => {
+    e.stopPropagation();
+    kFotoSetzen(aktuellesFoto);
+    fotoZu();
+    $("kommentare").scrollIntoView({ behavior: "smooth", block: "end" });
+    (meinName ? $("k-text") : $("k-name")).focus();
+  };
+
+  let sendet = false;
+  $("k-form").onsubmit = async (e) => {
+    e.preventDefault();
+    if (sendet) return;
+    const name = (meinName || $("k-name").value).trim();
+    const text = $("k-text").value.trim();
+    $("k-fehler").textContent = "";
+    if (!name) { $("k-fehler").textContent = "Bitte gib deinen Namen ein."; $("k-name").focus(); return; }
+    if (!text) { $("k-text").focus(); return; }
+    sendet = true;
+    try {
+      const r = await fetch(API + "?ansicht=" + encodeURIComponent(token) + "&kommentar=1", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name, text, foto_id: kFoto }) });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(d.fehler || "Senden fehlgeschlagen");
+      eigeneKommentare.add(d.id);
+      meinName = name;
+      try { localStorage.setItem("kommentarName", name); } catch (err) {}
+      nameAnzeigen();
+      $("k-text").value = "";
+      kFotoSetzen(null);
+      $("k-liste").scrollTop = $("k-liste").scrollHeight;
+      laden();
+    } catch (err) {
+      $("k-fehler").textContent = err.message + " – bitte nochmal versuchen.";
+    } finally { sendet = false; }
+  };
+
   let hinweisTimer;
   function neuesFotoHinweis(id) {
+    hinweis("📷 Neues Foto", () => fotoZeigen(id));
+  }
+  function hinweis(text, aktion) {
     const h = $("hinweis");
+    h.textContent = text;
     h.style.display = "block";
-    h.onclick = () => { h.style.display = "none"; fotoZeigen(id); };
+    h.onclick = () => { h.style.display = "none"; aktion(); };
     clearTimeout(hinweisTimer);
     hinweisTimer = setTimeout(() => { h.style.display = "none"; }, 15000);
   }
@@ -433,7 +578,8 @@
   // ---------- Daten laden ----------
   async function laden() {
     const url = API + "?ansicht=" + encodeURIComponent(token) + (cursor ? "&seit=" + encodeURIComponent(cursor) : "")
-      + (fotoCursor ? "&fotos_seit=" + fotoCursor : "");
+      + (fotoCursor ? "&fotos_seit=" + fotoCursor : "")
+      + (kCursor ? "&kommentare_seit=" + kCursor : "");
     try {
       const r = await fetch(url, { cache: "no-store" });
       if (r.status === 403) { meldung("Link ungültig", "Dieser Link funktioniert nicht (mehr)."); return; }
@@ -459,6 +605,19 @@
         if (!ersterAbruf && neue.length) neuesFotoHinweis(neue[neue.length - 1].id);
       }
       if (d.fotos_cursor) fotoCursor = d.fotos_cursor;
+      if (d.kommentare && d.kommentare.length) {
+        const bekannt = new Set(kommentare.map((k) => k.id));
+        const neu = d.kommentare.filter((k) => !bekannt.has(k.id));
+        kommentare = kommentare.concat(neu).sort((a, b) => a.id - b.id);
+        const fremd = neu.filter((k) => !eigeneKommentare.has(k.id));
+        if (!ersterAbruf && fremd.length) {
+          const k = fremd[fremd.length - 1];
+          const kurz = k.text.length > 40 ? k.text.slice(0, 40) + "…" : k.text;
+          hinweis("💬 " + (k.fahrer ? "🏍️ " : "") + k.name + ": " + kurz, () => $("kommentare").scrollIntoView({ behavior: "smooth" }));
+        }
+        kommentareZeichnen();
+      }
+      if (d.kommentare_cursor) kCursor = d.kommentare_cursor;
       ersterAbruf = false;
       fehlerZaehler = 0;
       anzeigen();

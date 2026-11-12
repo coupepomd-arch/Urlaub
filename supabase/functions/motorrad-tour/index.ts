@@ -5,6 +5,9 @@
 // Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&seit=<Nr>][&fotos_seit=<Nr>]
 // Foto hochladen: POST .../motorrad-tour?id=<SENDE_TOKEN>&foto=1  (multipart: bild, vorschau, zeit, titel, lat, lng)
 // Foto ansehen:   GET  .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&foto=<Nr>[&klein=1]
+// Kommentar:      POST .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&kommentar=1  JSON {name, text, foto_id?}
+//                 POST .../motorrad-tour?id=<SENDE_TOKEN>&kommentar=1         (Antwort vom Fahrer)
+// Kommentare für den Fahrer: GET .../motorrad-tour?id=<SENDE_TOKEN>&kommentare=1[&kommentare_seit=<Nr>]
 import postgres from "npm:postgres@3.4.5";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false });
@@ -170,8 +173,13 @@ async function ansehen(url: URL) {
     where geraet_id = ${geraet.id} and aufgenommen_am > ${ab} and id > ${fotosSeit}
     order by id`;
 
+  const kSeit = Math.max(0, Math.floor(Number(url.searchParams.get("kommentare_seit")) || 0));
+  const kommentare = await kommentareLaden(geraet.id, kSeit);
+
   return json({
     name: geraet.name,
+    kommentare_cursor: kommentare.length ? kommentare[kommentare.length - 1].id : kSeit,
+    kommentare,
     fotos_cursor: fotos.length ? Number(fotos[fotos.length - 1].id) : fotosSeit,
     fotos: fotos.map((f) => ({ id: Number(f.id), t: f.aufgenommen_am, lat: f.lat, lng: f.lng, titel: f.titel })),
     cursor: rows.length ? Number(rows[rows.length - 1].id) : seit,
@@ -187,6 +195,62 @@ async function ansehen(url: URL) {
       laedt: r.laedt,
     })),
   });
+}
+
+async function kommentareLaden(geraetId: number, seit: number) {
+  const ab = new Date(Date.now() - 18 * 3600 * 1000);
+  const rows = await sql`
+    select k.id, k.erstellt_am, k.name, k.text, k.foto_id, k.vom_fahrer, f.aufgenommen_am as foto_t
+    from privat.tour_kommentare k
+    left join privat.tour_fotos f on f.id = k.foto_id
+    where k.geraet_id = ${geraetId} and k.erstellt_am > ${ab} and k.id > ${seit}
+    order by k.id
+    limit 1000`;
+  return rows.map((k) => ({
+    id: Number(k.id), t: k.erstellt_am, name: k.name, text: k.text,
+    foto_id: k.foto_id === null ? null : Number(k.foto_id), foto_t: k.foto_t, fahrer: k.vom_fahrer,
+  }));
+}
+
+async function kommentarSchreiben(req: Request, url: URL) {
+  const ansicht = url.searchParams.get("ansicht"), sende = url.searchParams.get("id");
+  let geraet: { id: number } | undefined, fahrer = false;
+  if (sende) { [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${sende}`; fahrer = true; }
+  else if (ansicht) { [geraet] = await sql`select id from privat.tour_geraete where ansicht_token = ${ansicht}`; }
+  if (!geraet) return json({ fehler: "Link ungültig" }, 403);
+
+  let body: any;
+  try { body = await req.json(); } catch { return json({ fehler: "ungültige Daten" }, 400); }
+  const name = String(body?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 40) || (fahrer ? "Fahrer" : "");
+  const text = String(body?.text ?? "").trim().slice(0, 500);
+  if (!name) return json({ fehler: "Name fehlt" }, 400);
+  if (!text) return json({ fehler: "Text fehlt" }, 400);
+
+  let fotoId: number | null = null;
+  if (body?.foto_id != null) {
+    const [f] = await sql`select id from privat.tour_fotos where id = ${Math.floor(Number(body.foto_id)) || 0} and geraet_id = ${geraet.id}`;
+    if (f) fotoId = Number(f.id);
+  }
+
+  // Einfacher Spamschutz: höchstens 20 Kommentare pro Minute insgesamt
+  const [{ anzahl }] = await sql`
+    select count(*)::int as anzahl from privat.tour_kommentare
+    where geraet_id = ${geraet.id} and erstellt_am > now() - interval '1 minute'`;
+  if (anzahl >= 20) return json({ fehler: "Zu viele Kommentare, bitte kurz warten" }, 429);
+
+  const [neu] = await sql`
+    insert into privat.tour_kommentare (geraet_id, name, text, foto_id, vom_fahrer)
+    values (${geraet.id}, ${name}, ${text}, ${fotoId}, ${fahrer})
+    returning id`;
+  return json({ ok: true, id: Number(neu.id) });
+}
+
+async function kommentareFuerFahrer(url: URL) {
+  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${url.searchParams.get("id")}`;
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+  const seit = Math.max(0, Math.floor(Number(url.searchParams.get("kommentare_seit")) || 0));
+  const kommentare = await kommentareLaden(geraet.id, seit);
+  return json({ kommentare_cursor: kommentare.length ? kommentare[kommentare.length - 1].id : seit, kommentare });
 }
 
 const MAX_BILD = 6 * 1024 * 1024;
@@ -257,6 +321,8 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && url.searchParams.has("ansicht") && url.searchParams.has("foto")) return await fotoLiefern(url);
     if (req.method === "GET" && url.searchParams.has("ansicht")) return await ansehen(url);
     if (req.method === "POST" && url.searchParams.has("foto")) return await fotoHochladen(req, url);
+    if (req.method === "POST" && url.searchParams.has("kommentar")) return await kommentarSchreiben(req, url);
+    if (req.method === "GET" && url.searchParams.has("kommentare") && url.searchParams.has("id")) return await kommentareFuerFahrer(url);
     if (req.method === "GET" || req.method === "POST") return await empfangen(req, url);
     return json({ fehler: "Methode nicht erlaubt" }, 405);
   } catch (e) {

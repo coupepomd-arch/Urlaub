@@ -47,6 +47,14 @@ Startbildschirm hinzufügen). Fotos werden vor dem Hochladen verkleinert (max. 1
 `privat.tour_fotos` gespeichert. Der Ort wird über die Aufnahmezeit dem nächsten Streckenpunkt
 (± 15 Min.) zugeordnet, sonst dem Standort des Handys beim Hochladen.
 
+## Kommentare
+
+Jeder mit dem Live-Link kann unter Angabe eines Namens kommentieren, auch direkt zu einem Foto.
+Der Fahrer liest und antwortet auf der Foto-Seite; seine Antworten sind mit 🏍️ markiert.
+Gespeichert in `privat.tour_kommentare`, höchstens 20 Kommentare pro Minute.
+
+Kommentar ausblenden: `update privat.tour_kommentare set erstellt_am = erstellt_am - interval '2 days' where id = …;`
+
 ## Neue Schlüssel erzeugen (falls ein Link weitergegeben wurde)
 
 ```sql
