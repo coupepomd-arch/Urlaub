@@ -5,28 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="strict-origin">
-<title>Tour-Fotos</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
+<meta name="theme-color" content="#0c3c5c">
+<title>Tour-Fahrer</title>
+<link rel="manifest" href="fahrer.webmanifest">
+<link rel="icon" type="image/png" href="bilder/fahrer-192.png">
+<link rel="apple-touch-icon" href="bilder/fahrer-apple.png">
 <style>
   :root {
-    --bg: #f4f5f7; --karte: #fff; --text: #15181d; --leise: #5d6570; --linie: #e3e6ea;
-    --akzent: #1f6feb; --gruen: #12924f; --rot: #d0362b;
+    --bg: #f7f3ef; --karte: #fff; --text: #1d1714; --leise: #6b5f58; --linie: #ebe2da;
+    --akzent: #e8590c; --akzent2: #c2410c; --meer: #0c3c5c; --gruen: #2b9348; --rot: #d0362b;
   }
   @media (prefers-color-scheme: dark) {
-    :root { --bg: #0f1216; --karte: #1a1f26; --text: #eef1f4; --leise: #9aa3ad; --linie: #2a313a;
-      --akzent: #5aa2ff; --gruen: #3ccf7e; --rot: #ff6b5e; }
+    :root { --bg: #14100e; --karte: #201a17; --text: #f4ece6; --leise: #b2a49b; --linie: #362c27;
+      --akzent: #ff7a33; --akzent2: #ff8f52; --meer: #3bc9db; --gruen: #51cf66; --rot: #ff6b5e; }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { margin: 0; background: var(--bg); color: var(--text);
     font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   main { max-width: 520px; margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 16px 40px; }
-  h1 { font-size: 24px; margin: 4px 0 4px; }
+  h1 { font-size: 24px; margin: 0; letter-spacing: -.3px; }
+  .kopf { display: flex; align-items: center; gap: 12px; margin: 4px 0 18px; }
+  .kopf img { width: 48px; height: 48px; border-radius: 13px; }
+  .kopf small { display: block; color: var(--leise); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .4px; }
+  .meldungen { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin-bottom: 8px; }
+  .meldungen button { border: 0; border-radius: 16px; padding: 16px 10px; background: var(--karte); color: var(--text); font: inherit;
+    font-size: 16px; font-weight: 650; cursor: pointer; box-shadow: 0 1px 3px rgba(0,0,0,.08); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  .meldungen button span { font-size: 30px; line-height: 1; }
+  .meldungen button:active { transform: scale(.97); }
+  .meldungen button.gesendet { background: var(--gruen); color: #fff; }
+  #meldung-status { min-height: 20px; font-size: 14px; color: var(--leise); margin: 0 0 6px; }
+  .meldung-k { justify-self: start; background: linear-gradient(135deg, var(--akzent), var(--akzent2)); color: #fff; border-radius: 999px; padding: 6px 14px; font-weight: 650; font-size: 14px; }
+  .meldung-k small { color: rgba(255,255,255,.85); margin-left: 6px; font-weight: 400; }
   .leise { color: var(--leise); font-size: 14px; margin: 0 0 18px; }
   .knopf {
     display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
     border: 0; border-radius: 16px; padding: 22px 16px; margin-bottom: 12px; cursor: pointer;
-    font: inherit; font-size: 20px; font-weight: 700; color: #fff; background: var(--akzent);
+    font: inherit; font-size: 20px; font-weight: 700; color: #fff; background: linear-gradient(135deg, var(--akzent), var(--akzent2));
   }
   .knopf.zwei { background: var(--karte); color: var(--text); border: 1px solid var(--linie); font-size: 18px; padding: 16px; }
   input[type=file] { display: none; }
@@ -59,7 +74,23 @@
 </head>
 <body>
 <main id="app">
-  <h1>📷 Tour-Fotos</h1>
+  <div class="kopf"><img src="bilder/fahrer-192.png" alt=""><div><small>Für den Fahrer</small><h1>Tour-Fahrer</h1></div></div>
+
+  <h2 style="margin-top:0">📣 Schnellmeldung</h2>
+  <p class="leise" style="margin-bottom:10px">Ein Tipp – erscheint sofort bei allen auf der Karte.</p>
+  <div class="meldungen" id="meldungen">
+    <button type="button" data-art="gut"><span>👍</span>Alles gut</button>
+    <button type="button" data-art="pause"><span>☕</span>Kaffeepause</button>
+    <button type="button" data-art="tanken"><span>⛽</span>Tanken</button>
+    <button type="button" data-art="essen"><span>🍽️</span>Essen</button>
+    <button type="button" data-art="foto"><span>📸</span>Fotostopp</button>
+    <button type="button" data-art="aussicht"><span>🌋</span>Aussicht</button>
+    <button type="button" data-art="weiter"><span>🏍️</span>Weiter geht's</button>
+    <button type="button" data-art="angekommen"><span>🏁</span>Angekommen</button>
+  </div>
+  <p id="meldung-status" aria-live="polite"></p>
+
+  <h2>📷 Fotos</h2>
   <p class="leise">Fotos erscheinen auf der Live-Karte an der Stelle, an der sie aufgenommen wurden.</p>
 
   <button class="knopf" id="kamera" type="button">📷 Foto machen</button>
@@ -114,6 +145,15 @@
     const liste = $("k-liste");
     liste.textContent = "";
     for (const k of kommentare.slice().reverse()) {   // neueste oben
+      if (k.art) {
+        const m = document.createElement("div");
+        m.className = "meldung-k";
+        m.textContent = "🏍️ " + k.text;
+        const sm = document.createElement("small"); sm.textContent = uhr(k.t);
+        m.appendChild(sm);
+        liste.appendChild(m);
+        continue;
+      }
       const el = document.createElement("div");
       el.className = "k" + (k.fahrer ? " fahrer" : "");
       const b = document.createElement("b"); b.textContent = (k.fahrer ? "🏍️ " : "") + k.name;
@@ -122,7 +162,8 @@
       el.append(b, s, p);
       liste.appendChild(el);
     }
-    $("k-titel").textContent = "💬 Kommentare" + (kommentare.length ? " (" + kommentare.length + ")" : "");
+    const echte = kommentare.filter((k) => !k.art).length;
+    $("k-titel").textContent = "💬 Kommentare" + (echte ? " (" + echte + ")" : "");
   }
   async function kommentareLaden() {
     try {
@@ -150,6 +191,40 @@
     } catch (err) { alert("Keine Verbindung, bitte nochmal versuchen."); }
     finally { $("k-text").disabled = false; }
   };
+  // ---------- Schnellmeldungen ----------
+  for (const b of document.querySelectorAll("#meldungen button")) {
+    b.onclick = async () => {
+      if (b.disabled) return;
+      const art = b.dataset.art, alt = b.innerHTML;
+      for (const x of document.querySelectorAll("#meldungen button")) x.disabled = true;
+      $("meldung-status").textContent = "wird gesendet …";
+      // Standort dieses Handys holen (max. 6 s), sonst nimmt der Server die letzte Streckenposition
+      const ort = await new Promise((ok) => {
+        if (!navigator.geolocation) return ok(null);
+        navigator.geolocation.getCurrentPosition((p) => ok({ lat: p.coords.latitude, lng: p.coords.longitude }),
+          () => ok(null), { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 });
+      });
+      let erfolg = false;
+      for (let versuch = 1; versuch <= 4 && !erfolg; versuch++) {
+        try {
+          const r = await fetch(API + "?kommentar=1&id=" + encodeURIComponent(token), {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ art, ...(ort || {}) }) });
+          erfolg = r.ok;
+        } catch (e) {}
+        if (!erfolg) await new Promise((ok) => setTimeout(ok, 2000 * versuch));
+      }
+      for (const x of document.querySelectorAll("#meldungen button")) x.disabled = false;
+      if (erfolg) {
+        b.classList.add("gesendet"); b.innerHTML = "<span>✓</span>Gesendet";
+        $("meldung-status").textContent = "✓ Meldung um " + uhr(Date.now()) + " gesendet";
+        setTimeout(() => { b.classList.remove("gesendet"); b.innerHTML = alt; }, 2500);
+        kommentareLaden();
+      } else {
+        $("meldung-status").textContent = "⚠️ Keine Verbindung – bitte nochmal tippen.";
+      }
+    };
+  }
+
   kommentareZeichnen();
   kommentareLaden();
   setInterval(kommentareLaden, 20000);

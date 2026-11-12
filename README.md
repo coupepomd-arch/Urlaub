@@ -60,6 +60,21 @@ Gespeichert in `privat.tour_kommentare`, höchstens 20 Kommentare pro Minute.
 Kommentare gehören zu dem Tag, der beim Schreiben angezeigt wurde (`tag`).
 Kommentar ausblenden: `update privat.tour_kommentare set tag = date '2000-01-01' where id = …;`
 
+## Extras
+
+- **Schnellmeldungen** auf der Fahrer-Seite (☕ Pause, ⛽ Tanken, 👍 Alles gut, 🏁 Angekommen …): erscheinen als
+  Symbol auf der Karte, als Hinweis und im Status („☕ Kaffeepause · seit 12 min“). Gespeichert in
+  `privat.tour_kommentare` mit `art`, `lat`, `lng`.
+- **Reaktionen** ❤️ 🔥 😂 👍 😮 auf Fotos und Kommentare (`privat.tour_reaktionen`, eine anonyme Kennung pro Browser).
+- **Wetter** (Open-Meteo) und **Ortsname** (Nominatim, gedrosselt) zur aktuellen Position; die Abfragen kommen
+  direkt aus dem Browser der Zuschauer.
+- **Reisebuch als Magazin** mit Titelfoto, Mini-Strecke und Kommentar-Zitaten pro Tag; **Replay** spielt einen Tag
+  im Zeitraffer ab, Fotos und Meldungen tauchen an ihrer Stelle auf.
+- **App-Symbole**: Live-Seite und Fahrer-Seite lassen sich zum Startbildschirm hinzufügen
+  (`manifest.webmanifest`, `fahrer.webmanifest`, Bilder in `bilder/`). Der Schlüssel wird beim ersten Öffnen
+  im Browser gespeichert.
+- Reisetitel: `update privat.tour_geraete set titel = '…' where id = 1;`
+
 ## Neue Schlüssel erzeugen (falls ein Link weitergegeben wurde)
 
 ```sql

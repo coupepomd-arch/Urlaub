@@ -5,186 +5,275 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
 <meta name="referrer" content="strict-origin">
+<meta name="theme-color" content="#c2410c">
 <title>Motorrad Live</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏍️</text></svg>">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" href="bilder/favicon-64.png">
+<link rel="apple-touch-icon" href="bilder/apple-touch-icon.png">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
       integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
 <style>
   :root {
-    --bg: #f4f5f7;
+    --bg: #f7f3ef;
     --karte: #ffffff;
-    --text: #15181d;
-    --leise: #5d6570;
-    --linie: #e3e6ea;
-    --gruen: #12924f;
-    --gelb: #c98a00;
+    --text: #1d1714;
+    --leise: #6b5f58;
+    --linie: #ebe2da;
+    --lava: #e8590c;
+    --lava-dunkel: #c2410c;
+    --meer: #0b7285;
+    --gruen: #2b9348;
+    --gelb: #d99a06;
     --rot: #d0362b;
-    --akzent: #1f6feb;
-    --schatten: 0 6px 24px rgba(0,0,0,.12);
+    --fahrer: #fff1e6;
+    --schatten: 0 6px 24px rgba(60, 25, 10, .14);
   }
   @media (prefers-color-scheme: dark) {
     :root {
-      --bg: #0f1216;
-      --karte: #1a1f26;
-      --text: #eef1f4;
-      --leise: #9aa3ad;
-      --linie: #2a313a;
-      --gruen: #3ccf7e;
-      --gelb: #f0b429;
+      --bg: #14100e;
+      --karte: #201a17;
+      --text: #f4ece6;
+      --leise: #b2a49b;
+      --linie: #362c27;
+      --lava: #ff7a33;
+      --lava-dunkel: #ff8f52;
+      --meer: #3bc9db;
+      --gruen: #51cf66;
+      --gelb: #fcc419;
       --rot: #ff6b5e;
-      --akzent: #5aa2ff;
-      --schatten: 0 6px 24px rgba(0,0,0,.5);
+      --fahrer: #3a2418;
+      --schatten: 0 6px 24px rgba(0, 0, 0, .5);
     }
   }
   * { box-sizing: border-box; }
   [hidden] { display: none !important; }
   html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
-    font: 15px/1.35 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
   body { display: flex; flex-direction: column; }
-  #karte { flex: 1; min-height: 45vh; }
-  .leaflet-container { background: var(--bg); }
-  /* dunkler Rand um die Strecke, damit sie auch auf Satellitenbildern gut sichtbar ist */
-  .leaflet-overlay-pane path { filter: drop-shadow(0 0 1.5px rgba(0,0,0,.9)); }
+  button { font: inherit; color: inherit; }
+  #karte { flex: 1; min-height: 42vh; }
+  .leaflet-container { background: var(--bg); font: inherit; }
   @media (prefers-color-scheme: dark) {
     .kacheln-strasse { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
   }
+  .leaflet-overlay-pane path { filter: drop-shadow(0 0 1.5px rgba(0,0,0,.9)); }
   .leaflet-top.leaflet-right { top: max(56px, calc(env(safe-area-inset-top) + 46px)); }
 
-  #kopf {
-    position: absolute; top: max(10px, env(safe-area-inset-top)); left: 10px; right: 10px; z-index: 500;
-    display: flex; gap: 8px; align-items: center; pointer-events: none;
-  }
-  #status {
-    pointer-events: auto; display: flex; align-items: center; gap: 8px;
-    background: var(--karte); border-radius: 999px; padding: 8px 14px; box-shadow: var(--schatten);
-    font-weight: 600; max-width: 100%;
-  }
+  /* ---------- Kopf auf der Karte ---------- */
+  #kopf { position: absolute; top: max(10px, env(safe-area-inset-top)); left: 10px; right: 64px; z-index: 500;
+    display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none; }
+  .pille { pointer-events: auto; display: flex; align-items: center; gap: 8px; max-width: 100%;
+    background: var(--karte); border-radius: 999px; padding: 8px 14px; box-shadow: var(--schatten); }
+  #status { font-weight: 650; }
   #status .punkt { width: 10px; height: 10px; border-radius: 50%; background: var(--leise); flex: none; }
   #status.live .punkt { background: var(--gruen); animation: puls 1.6s infinite; }
   #status.pause .punkt { background: var(--gelb); }
   #status.weg .punkt { background: var(--rot); }
-  #status small { font-weight: 400; color: var(--leise); }
-  @keyframes puls { 0% { box-shadow: 0 0 0 0 rgba(18,146,79,.6); } 70% { box-shadow: 0 0 0 9px rgba(18,146,79,0); } 100% { box-shadow: 0 0 0 0 rgba(18,146,79,0); } }
+  #status small, #umgebung small { font-weight: 400; color: var(--leise); }
+  #statustext { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #umgebung { font-size: 13px; padding: 6px 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  @keyframes puls { 0% { box-shadow: 0 0 0 0 rgba(43,147,72,.6); } 70% { box-shadow: 0 0 0 9px rgba(43,147,72,0); } 100% { box-shadow: 0 0 0 0 rgba(43,147,72,0); } }
 
-  #panel {
-    background: var(--karte); border-top: 1px solid var(--linie);
-    padding: 14px 16px calc(14px + env(safe-area-inset-bottom));
-    box-shadow: 0 -6px 24px rgba(0,0,0,.08);
-  }
-  #gross { display: flex; align-items: baseline; gap: 18px; margin-bottom: 12px; flex-wrap: wrap; }
-  #tempo { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; }
-  #tempo span { font-size: 16px; font-weight: 600; color: var(--leise); margin-left: 4px; letter-spacing: 0; }
-  #ort { color: var(--leise); font-size: 14px; flex: 1; min-width: 140px; }
-  .raster { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-  .wert { background: var(--bg); border-radius: 12px; padding: 9px 10px; }
-  .wert b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
-  .wert small { color: var(--leise); font-size: 12px; }
-  .knoepfe { display: flex; gap: 8px; margin-top: 12px; }
-  .knoepfe button, .knoepfe a {
-    flex: 1; text-align: center; border: 0; border-radius: 12px; padding: 11px 8px; font: inherit; font-weight: 600;
-    background: var(--bg); color: var(--text); text-decoration: none; cursor: pointer;
-  }
-  .knoepfe .an { background: var(--akzent); color: #fff; }
+  /* ---------- Legende ---------- */
+  .legende { background: var(--karte); color: var(--text); border-radius: 10px; padding: 6px 8px; box-shadow: var(--schatten); font-size: 11px; line-height: 1; }
+  .legende .balken { width: 130px; height: 7px; border-radius: 4px; margin-bottom: 4px;
+    background: linear-gradient(90deg, #2bb673 0%, #9acd32 25%, #f0b429 50%, #f77f00 75%, #d0362b 100%); }
+  .legende .zahlen { display: flex; justify-content: space-between; color: var(--leise); }
 
-  .moto {
-    width: 38px; height: 38px; border-radius: 50%; background: var(--karte); border: 3px solid var(--akzent);
-    display: grid; place-items: center; font-size: 20px; box-shadow: var(--schatten);
-  }
-  .moto.alt { border-color: var(--leise); filter: grayscale(.6); }
+  /* ---------- Marker ---------- */
+  .moto { position: relative; width: 44px; height: 44px; }
+  .moto .kreis { position: absolute; inset: 0; border-radius: 50%; background: var(--karte); border: 3px solid var(--lava);
+    display: grid; place-items: center; font-size: 22px; box-shadow: var(--schatten); }
+  .moto .pfeil { position: absolute; inset: -12px; transition: transform .8s ease; }
+  .moto .pfeil::before { content: ""; position: absolute; left: 50%; top: 0; transform: translateX(-50%);
+    border-left: 8px solid transparent; border-right: 8px solid transparent; border-bottom: 12px solid var(--lava); }
+  .moto.alt .kreis { border-color: var(--leise); filter: grayscale(.6); }
+  .moto.alt .pfeil, .moto.ohne-richtung .pfeil { display: none; }
+  .moto.live::after { content: ""; position: absolute; inset: -6px; border-radius: 50%; border: 2px solid var(--lava); opacity: 0;
+    animation: welle 2s infinite; }
+  @keyframes welle { 0% { transform: scale(.8); opacity: .8; } 100% { transform: scale(1.6); opacity: 0; } }
   .start { width: 14px; height: 14px; border-radius: 50%; background: var(--gruen); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
-
   .foto-pin { width: 46px; height: 46px; border-radius: 10px; border: 3px solid #fff; overflow: hidden;
     box-shadow: 0 2px 8px rgba(0,0,0,.5); background: #ddd; }
   .foto-pin img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #fotos { margin-top: 12px; display: none; }
-  #fotos h2 { font-size: 13px; font-weight: 600; color: var(--leise); margin: 0 0 6px; }
-  #fotoleiste { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
-  #fotoleiste button { flex: none; width: 72px; height: 72px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--bg); }
-  #fotoleiste img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  #gross-foto { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.92); display: none;
-    flex-direction: column; align-items: center; justify-content: center; padding: 16px; color: #fff; }
-  #gross-foto.zeigen { display: flex; }
-  #gross-foto img { max-width: 100%; max-height: calc(100% - 110px); object-fit: contain; border-radius: 8px; }
-  #gross-foto .unter { margin-top: 12px; text-align: center; max-width: 640px; }
-  #gross-foto .unter small { color: #bbb; }
-  #gross-foto .zu, #gross-foto .pfeil { position: absolute; border: 0; background: rgba(255,255,255,.15); color: #fff;
-    width: 48px; height: 48px; border-radius: 50%; font-size: 24px; cursor: pointer; }
-  #gross-foto .zu { top: max(14px, env(safe-area-inset-top)); right: 14px; }
-  #gross-foto .pfeil { top: 50%; transform: translateY(-50%); }
-  #gross-foto .zurueck { left: 10px; } #gross-foto .vor { right: 10px; }
-  #hinweis { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 1500; background: var(--text); color: var(--bg);
-    padding: 10px 16px; border-radius: 999px; font-weight: 600; box-shadow: var(--schatten); display: none; cursor: pointer;
-    max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #tagleiste { display: flex; align-items: center; gap: 6px; margin: -2px 0 12px; }
-  #tagleiste .nav { flex: none; width: 38px; height: 38px; border: 0; border-radius: 10px; background: var(--bg); color: var(--text); font-size: 20px; cursor: pointer; }
+  .meldung-pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 4px; background: var(--karte); border: 2px solid var(--lava);
+    display: grid; place-items: center; font-size: 17px; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
+
+  /* ---------- Panel ---------- */
+  #panel { background: var(--karte); border-top: 1px solid var(--linie);
+    padding: 14px 16px calc(14px + env(safe-area-inset-bottom)); box-shadow: 0 -6px 24px rgba(0,0,0,.08); }
+  @media (max-width: 899px) { #panel { max-height: 60vh; overflow-y: auto; } }
+  #reisetitel { display: flex; align-items: center; gap: 10px; margin: 0 0 10px; }
+  #reisetitel img { width: 34px; height: 34px; border-radius: 9px; flex: none; }
+  #reisetitel h1 { font-size: 20px; line-height: 1.1; margin: 0; letter-spacing: -.3px; }
+  #reisetitel small { display: block; color: var(--leise); font-size: 12px; font-weight: 500; letter-spacing: .3px; text-transform: uppercase; }
+  #tagleiste { display: flex; align-items: center; gap: 6px; margin: 0 0 12px; }
+  #tagleiste .nav { flex: none; width: 38px; height: 38px; border: 0; border-radius: 10px; background: var(--bg); font-size: 20px; cursor: pointer; }
   #tagleiste .nav:disabled { opacity: .3; cursor: default; }
   #tag-titel { flex: 1; min-width: 0; text-align: center; line-height: 1.2; }
   #tag-titel b { display: block; font-size: 16px; }
   #tag-titel small { color: var(--leise); font-size: 13px; }
-  #buch-knopf { flex: none; border: 0; border-radius: 10px; padding: 0 12px; height: 38px; font: inherit; font-weight: 600; background: var(--bg); color: var(--text); cursor: pointer; }
-  #buch { position: fixed; inset: 0; z-index: 1800; background: var(--bg); overflow-y: auto; display: none; }
-  #buch.zeigen { display: block; }
-  #buch .innen { max-width: 640px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 40px; }
-  #buch header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-  #buch h1 { font-size: 24px; margin: 0; flex: 1; }
-  #buch .zu { border: 0; border-radius: 50%; width: 42px; height: 42px; font-size: 20px; background: var(--karte); color: var(--text); cursor: pointer; }
-  #buch-summe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
-  #buch-summe div { background: var(--karte); border-radius: 12px; padding: 10px; }
-  #buch-summe b { display: block; font-size: 20px; }
-  #buch-summe small { color: var(--leise); font-size: 12px; }
-  .tagkarte { display: block; width: 100%; text-align: left; border: 0; font: inherit; color: inherit; cursor: pointer;
-    background: var(--karte); border-radius: 16px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
-  .tagkarte.aktiv { outline: 2px solid var(--akzent); }
-  .tagkarte h2 { font-size: 17px; margin: 0 0 2px; }
-  .tagkarte h2 small { font-weight: 400; color: var(--leise); font-size: 14px; margin-left: 6px; }
-  .tagkarte .zahlen { color: var(--leise); font-size: 14px; }
-  .tagkarte .bilder { display: flex; gap: 6px; margin-top: 10px; overflow: hidden; }
-  .tagkarte .bilder img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; flex: none; background: var(--bg); }
-  #buch .leer { color: var(--leise); text-align: center; padding: 30px 0; }
-  #kommentare { margin-top: 14px; }
-  #kommentare h2 { font-size: 13px; font-weight: 600; color: var(--leise); margin: 0 0 6px; }
-  #k-liste { display: grid; gap: 8px; max-height: 260px; overflow-y: auto; margin-bottom: 8px; }
+  #buch-knopf { flex: none; border: 0; border-radius: 10px; padding: 0 12px; height: 38px; font-weight: 650;
+    background: linear-gradient(135deg, var(--lava), var(--lava-dunkel)); color: #fff; cursor: pointer; }
+
+  #gross { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+  #tacho { flex: none; width: 150px; height: 92px; }
+  #tacho .wert { font: 800 34px/1 system-ui, sans-serif; fill: var(--text); }
+  #tacho .einheit { font: 600 12px system-ui, sans-serif; fill: var(--leise); }
+  #tacho .nadel { transition: transform 1s cubic-bezier(.3,1.4,.5,1); transform-origin: 75px 75px; }
+  #tempo { font-size: 44px; font-weight: 800; letter-spacing: -1px; line-height: 1; font-variant-numeric: tabular-nums; }
+  #tempo span { font-size: 16px; font-weight: 600; color: var(--leise); margin-left: 4px; letter-spacing: 0; }
+  #ort { color: var(--leise); font-size: 14px; flex: 1; min-width: 0; }
+  .raster { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+  .wert-kachel { background: var(--bg); border-radius: 12px; padding: 9px 10px; }
+  .wert-kachel b { display: block; font-size: 18px; font-variant-numeric: tabular-nums; }
+  .wert-kachel small { color: var(--leise); font-size: 12px; }
+  .knoepfe { display: flex; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
+  .knoepfe button, .knoepfe a { flex: 1 1 30%; text-align: center; border: 0; border-radius: 12px; padding: 11px 8px; font-weight: 650;
+    background: var(--bg); text-decoration: none; color: var(--text); cursor: pointer; }
+  .knoepfe .an { background: var(--lava); color: #fff; }
+  h2.abschnitt { font-size: 13px; font-weight: 650; color: var(--leise); margin: 14px 0 6px; text-transform: uppercase; letter-spacing: .4px; }
+
+  /* ---------- Fotos ---------- */
+  #fotoleiste { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  #fotoleiste button { flex: none; position: relative; width: 76px; height: 76px; padding: 0; border: 0; border-radius: 12px; overflow: hidden; cursor: pointer; background: var(--bg); }
+  #fotoleiste img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #fotoleiste .herz { position: absolute; right: 3px; bottom: 3px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px; border-radius: 999px; padding: 1px 6px; }
+
+  /* ---------- Kommentare ---------- */
+  #k-liste { display: grid; gap: 8px; max-height: 300px; overflow-y: auto; margin-bottom: 8px; }
   #k-liste:empty::before { content: "Noch keine Kommentare. Schreib den ersten! 👋"; color: var(--leise); font-size: 14px; }
-  .k { background: var(--bg); border-radius: 12px; padding: 8px 10px; display: flex; gap: 10px; align-items: flex-start; }
-  .k.fahrer { background: color-mix(in srgb, var(--akzent) 14%, var(--bg)); }
+  .k { background: var(--bg); border-radius: 14px; padding: 8px 10px; display: flex; gap: 10px; align-items: flex-start; }
+  .k.fahrer { background: var(--fahrer); }
   .k .inhalt { flex: 1; min-width: 0; }
   .k b { font-size: 14px; }
   .k small { color: var(--leise); font-size: 12px; margin-left: 6px; }
   .k p { margin: 2px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; }
   .k .mini { flex: none; width: 40px; height: 40px; border-radius: 8px; overflow: hidden; border: 0; padding: 0; cursor: pointer; background: var(--linie); }
   .k .mini img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .meldung { justify-self: center; display: flex; align-items: center; gap: 8px; border: 0; cursor: pointer;
+    background: linear-gradient(135deg, var(--lava), var(--lava-dunkel)); color: #fff; border-radius: 999px; padding: 6px 14px; font-weight: 650; font-size: 14px; }
+  .meldung small { color: rgba(255,255,255,.8); font-weight: 400; }
   #k-form input { width: 100%; border: 1px solid var(--linie); border-radius: 12px; padding: 11px 12px; font: inherit; background: var(--karte); color: var(--text); }
   .k-zeile { display: flex; gap: 8px; }
   .k-zeile input { flex: 1; min-width: 0; }
-  .k-zeile button, #k-als button { border: 0; border-radius: 12px; padding: 0 16px; font: inherit; font-weight: 600; background: var(--akzent); color: #fff; cursor: pointer; }
+  .k-zeile button { border: 0; border-radius: 12px; padding: 0 16px; font-weight: 650; background: var(--lava); color: #fff; cursor: pointer; }
   #k-als { font-size: 13px; color: var(--leise); margin: 0 0 6px; }
-  #k-als button { background: none; color: var(--akzent); padding: 0; font-weight: 600; }
+  #k-als button { border: 0; background: none; color: var(--lava-dunkel); padding: 0; font-weight: 650; cursor: pointer; }
   #k-name { margin-bottom: 8px; }
   #k-foto { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--leise); margin-bottom: 6px; }
   #k-foto img { width: 32px; height: 32px; object-fit: cover; border-radius: 6px; }
   #k-foto button { border: 0; background: none; color: var(--leise); font-size: 16px; cursor: pointer; }
   #k-fehler { color: var(--rot); font-size: 13px; }
-  #gross-foto .k-knopf { margin-top: 10px; border: 0; border-radius: 999px; padding: 9px 16px; font: inherit; font-weight: 600; background: rgba(255,255,255,.18); color: #fff; cursor: pointer; }
-  #gross-foto .foto-k { margin-top: 8px; font-size: 14px; color: #ddd; text-align: left; max-height: 120px; overflow-y: auto; }
-  #gross-foto .foto-k div { margin-top: 3px; }
-  @media (max-width: 899px) { #panel { max-height: 58vh; overflow-y: auto; } }
-  #meldung { position: fixed; inset: 0; z-index: 1000; display: none; place-items: center; background: var(--bg); padding: 24px; text-align: center; }
-  #meldung.zeigen { display: grid; }
-  #meldung div { max-width: 360px; }
-  #meldung h1 { font-size: 22px; margin: 10px 0; }
-  #meldung p { color: var(--leise); }
+
+  /* ---------- Reaktionen ---------- */
+  .reakt { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 5px; align-items: center; }
+  .reakt button { border: 1px solid var(--linie); background: var(--karte); border-radius: 999px; padding: 1px 8px; font-size: 13px; cursor: pointer; line-height: 1.6; }
+  .reakt button.ich { border-color: var(--lava); background: color-mix(in srgb, var(--lava) 16%, var(--karte)); }
+  .reakt .mehr { color: var(--leise); }
+  .reakt .auswahl { display: inline-flex; gap: 2px; }
+  #gross-foto .reakt { justify-content: center; margin-top: 10px; }
+  #gross-foto .reakt button { background: rgba(255,255,255,.12); border-color: rgba(255,255,255,.25); color: #fff; font-size: 16px; padding: 3px 11px; }
+  #gross-foto .reakt button.ich { background: rgba(232,89,12,.55); border-color: #ff8f52; }
+
+  /* ---------- Großansicht Foto ---------- */
+  #gross-foto { position: fixed; inset: 0; z-index: 2000; background: rgba(10,6,4,.94); display: none;
+    flex-direction: column; align-items: center; justify-content: center; padding: 16px; color: #fff; }
+  #gross-foto.zeigen { display: flex; }
+  #gross-foto img.bild { max-width: 100%; max-height: calc(100% - 190px); object-fit: contain; border-radius: 10px; }
+  #gross-foto .unter { margin-top: 12px; text-align: center; max-width: 640px; width: 100%; }
+  #gross-foto .unter small { color: #bbb; }
+  #gross-foto .zu, #gross-foto .pfeil { position: absolute; border: 0; background: rgba(255,255,255,.15); color: #fff;
+    width: 48px; height: 48px; border-radius: 50%; font-size: 24px; cursor: pointer; }
+  #gross-foto .zu { top: max(14px, env(safe-area-inset-top)); right: 14px; }
+  #gross-foto .pfeil { top: 50%; transform: translateY(-50%); }
+  #gross-foto .zurueck { left: 10px; } #gross-foto .vor { right: 10px; }
+  #gross-foto .k-knopf { margin-top: 10px; border: 0; border-radius: 999px; padding: 9px 16px; font-weight: 650; background: rgba(255,255,255,.18); color: #fff; cursor: pointer; }
+  #gross-foto .foto-k { margin-top: 8px; font-size: 14px; color: #ddd; text-align: left; max-height: 100px; overflow-y: auto; }
+
+  /* ---------- Hinweis ---------- */
+  #hinweis { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 2500; background: var(--text); color: var(--bg);
+    padding: 10px 16px; border-radius: 999px; font-weight: 650; box-shadow: var(--schatten); display: none; cursor: pointer;
+    max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: rein .3s ease; }
+  @keyframes rein { from { transform: translate(-50%, 20px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
+
+  /* ---------- Replay ---------- */
+  #replay { position: absolute; left: 10px; right: 10px; bottom: 26px; z-index: 1000; display: none; align-items: center; gap: 8px;
+    background: var(--karte); border-radius: 16px; padding: 8px 10px; box-shadow: var(--schatten); }
+  #replay.zeigen { display: flex; }
+  #karte-wrap.replay-an .leaflet-bottom { bottom: 64px; }
+  #replay button { border: 0; background: var(--bg); border-radius: 10px; min-width: 40px; height: 36px; font-weight: 700; cursor: pointer; }
+  #replay input { flex: 1; min-width: 0; accent-color: var(--lava); }
+  #replay .zeit { font-variant-numeric: tabular-nums; font-size: 13px; min-width: 92px; text-align: right; }
+  #karte-wrap { position: relative; flex: 1; display: flex; min-height: 42vh; }
+  #karte-wrap #karte { flex: 1; }
+
+  /* ---------- Reisebuch (Magazin) ---------- */
+  #buch { position: fixed; inset: 0; z-index: 1800; background: var(--bg); overflow-y: auto; display: none; }
+  #buch.zeigen { display: block; }
+  #buch .innen { max-width: 720px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 48px; }
+  #buch header { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+  #buch header img { width: 52px; height: 52px; border-radius: 14px; }
+  #buch header div { flex: 1; }
+  #buch h1 { font-size: 28px; margin: 0; letter-spacing: -.5px; }
+  #buch header small { color: var(--leise); text-transform: uppercase; letter-spacing: .4px; font-size: 12px; font-weight: 600; }
+  #buch .zu { border: 0; border-radius: 50%; width: 44px; height: 44px; font-size: 20px; background: var(--karte); cursor: pointer; box-shadow: var(--schatten); }
+  #buch-summe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
+  #buch-summe div { background: var(--karte); border-radius: 14px; padding: 12px; }
+  #buch-summe b { display: block; font-size: 22px; letter-spacing: -.3px; }
+  #buch-summe small { color: var(--leise); font-size: 12px; }
+  .seite { display: block; width: 100%; text-align: left; border: 0; cursor: pointer; padding: 0; overflow: hidden;
+    background: var(--karte); border-radius: 22px; margin-bottom: 18px; box-shadow: var(--schatten); }
+  .seite.aktiv { outline: 3px solid var(--lava); }
+  .seite .titelbild { position: relative; height: 210px; background: linear-gradient(135deg, var(--lava), #7c2d12); }
+  .seite .titelbild img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .seite .titelbild::after { content: ""; position: absolute; inset: 0; background: linear-gradient(180deg, rgba(0,0,0,0) 40%, rgba(0,0,0,.65)); }
+  .seite .titelbild .ueber { position: absolute; left: 16px; bottom: 12px; right: 16px; z-index: 1; color: #fff; }
+  .seite .titelbild .ueber b { display: block; font-size: 30px; letter-spacing: -.6px; line-height: 1; }
+  .seite .titelbild .ueber span { font-size: 14px; opacity: .9; }
+  .seite .koerper { display: flex; gap: 14px; padding: 14px 16px 6px; align-items: center; }
+  .seite svg { flex: none; width: 110px; height: 90px; background: var(--bg); border-radius: 12px; }
+  .seite .zahlen { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 6px 12px; }
+  .seite .zahlen b { display: block; font-size: 17px; }
+  .seite .zahlen small { color: var(--leise); font-size: 12px; }
+  .seite blockquote { margin: 6px 16px 0; padding: 8px 12px; border-left: 3px solid var(--lava); background: var(--bg); border-radius: 0 10px 10px 0; font-style: italic; }
+  .seite blockquote small { display: block; font-style: normal; color: var(--leise); font-size: 12px; margin-top: 2px; }
+  .seite .bilder { display: flex; gap: 6px; padding: 12px 16px 16px; overflow: hidden; }
+  .seite .bilder img { width: 58px; height: 58px; object-fit: cover; border-radius: 10px; flex: none; background: var(--bg); }
+  .seite .platz { height: 10px; }
+  #buch .leer { color: var(--leise); text-align: center; padding: 40px 0; font-size: 16px; }
+
+  #meldung-voll { position: fixed; inset: 0; z-index: 3000; display: none; place-items: center; background: var(--bg); padding: 24px; text-align: center; }
+  #meldung-voll.zeigen { display: grid; }
+  #meldung-voll div { max-width: 360px; }
+  #meldung-voll img { width: 72px; height: 72px; border-radius: 18px; }
+  #meldung-voll h1 { font-size: 22px; margin: 12px 0 8px; }
+  #meldung-voll p { color: var(--leise); }
 
   @media (min-width: 900px) {
     body { flex-direction: row; }
-    #karte { height: 100%; }
-    #panel { width: 380px; border-top: 0; border-left: 1px solid var(--linie); overflow-y: auto; }
+    #karte-wrap { height: 100%; }
+    #panel { width: 400px; border-top: 0; border-left: 1px solid var(--linie); overflow-y: auto; }
   }
 </style>
 </head>
 <body>
-<div id="kopf"><div id="status"><span class="punkt"></span><span id="statustext">Verbinde …</span></div></div>
-<div id="karte"></div>
+<div id="karte-wrap">
+  <div id="karte"></div>
+  <div id="kopf">
+    <div class="pille" id="status"><span class="punkt"></span><span id="statustext">Verbinde …</span></div>
+    <div class="pille" id="umgebung" hidden></div>
+  </div>
+  <div id="replay" role="group" aria-label="Replay">
+    <button type="button" id="r-play" aria-label="Abspielen oder Pause">⏸</button>
+    <button type="button" id="r-tempo" aria-label="Geschwindigkeit">2×</button>
+    <input type="range" id="r-pos" min="0" max="1000" value="0" aria-label="Position im Replay">
+    <span class="zeit" id="r-zeit"></span>
+    <button type="button" id="r-ende" aria-label="Replay beenden">✕</button>
+  </div>
+</div>
 <div id="panel">
+  <div id="reisetitel"><img src="bilder/icon-192.png" alt=""><div><small>Motorrad live</small><h1 id="titel">Motorradreise</h1></div></div>
   <div id="tagleiste">
     <button class="nav" id="tag-zurueck" type="button" aria-label="Vorheriger Tag">‹</button>
     <div id="tag-titel"><b id="tag-name">Heute</b><small id="tag-datum"></small></div>
@@ -192,20 +281,43 @@
     <button id="buch-knopf" type="button">📖 Reisebuch</button>
   </div>
   <div id="gross">
-    <div id="tempo">–<span>km/h</span></div>
+    <svg id="tacho" viewBox="0 0 150 92" aria-label="Geschwindigkeit">
+      <defs>
+        <linearGradient id="tachoVerlauf" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="#2bb673"/><stop offset=".3" stop-color="#9acd32"/>
+          <stop offset=".55" stop-color="#f0b429"/><stop offset=".78" stop-color="#f77f00"/><stop offset="1" stop-color="#d0362b"/>
+        </linearGradient>
+      </defs>
+      <path d="M 12 75 A 63 63 0 0 1 138 75" fill="none" stroke="var(--linie)" stroke-width="11" stroke-linecap="round"/>
+      <path id="tacho-bogen" d="M 12 75 A 63 63 0 0 1 138 75" fill="none" stroke="url(#tachoVerlauf)" stroke-width="11" stroke-linecap="round"
+            pathLength="100" stroke-dasharray="0 100" style="transition: stroke-dasharray 1s ease"/>
+      <g class="nadel" id="tacho-nadel" style="transform: rotate(-90deg)">
+        <line x1="75" y1="75" x2="75" y2="22" stroke="var(--text)" stroke-width="3" stroke-linecap="round"/>
+      </g>
+      <circle cx="75" cy="75" r="5" fill="var(--text)"/>
+      <text x="75" y="58" text-anchor="middle" class="wert" id="tacho-wert">–</text>
+      <text x="75" y="90" text-anchor="middle" class="einheit">km/h</text>
+    </svg>
+    <div id="tempo" hidden>–<span>km</span></div>
     <div id="ort">Warte auf erste Position …</div>
   </div>
   <div class="raster">
-    <div class="wert"><b id="w-km">–</b><small>gefahren</small></div>
-    <div class="wert"><b id="w-fahrzeit">–</b><small>Fahrzeit</small></div>
-    <div class="wert"><b id="w-schnitt">–</b><small>Ø km/h</small></div>
-    <div class="wert"><b id="w-max">–</b><small>max. km/h</small></div>
-    <div class="wert"><b id="w-hoehe">–</b><small>Höhe</small></div>
-    <div class="wert"><b id="w-akku">–</b><small>Handy-Akku</small></div>
+    <div class="wert-kachel"><b id="w-km">–</b><small>gefahren</small></div>
+    <div class="wert-kachel"><b id="w-fahrzeit">–</b><small>Fahrzeit</small></div>
+    <div class="wert-kachel"><b id="w-schnitt">–</b><small>Ø km/h</small></div>
+    <div class="wert-kachel"><b id="w-max">–</b><small>max. km/h</small></div>
+    <div class="wert-kachel"><b id="w-hoehe">–</b><small>Höhe</small></div>
+    <div class="wert-kachel"><b id="w-akku">–</b><small>Handy-Akku</small></div>
   </div>
-  <div id="fotos"><h2 id="fotos-titel">Fotos</h2><div id="fotoleiste"></div></div>
+  <div class="knoepfe">
+    <button id="folgen" class="an" type="button">📍 Folgen</button>
+    <button id="ganze" type="button">🗺️ Strecke</button>
+    <button id="replay-knopf" type="button">▶️ Replay</button>
+    <a id="gmaps" href="#" target="_blank" rel="noopener">Google Maps</a>
+  </div>
+  <div id="fotos" hidden><h2 class="abschnitt" id="fotos-titel">Fotos</h2><div id="fotoleiste"></div></div>
   <div id="kommentare">
-    <h2 id="k-titel">💬 Kommentare</h2>
+    <h2 class="abschnitt" id="k-titel">💬 Kommentare</h2>
     <div id="k-liste"></div>
     <form id="k-form" autocomplete="off">
       <div id="k-foto" hidden><img alt=""><span>Kommentar zu diesem Foto</span><button type="button" aria-label="Foto entfernen">✕</button></div>
@@ -218,28 +330,26 @@
       <small id="k-fehler"></small>
     </form>
   </div>
-  <div class="knoepfe">
-    <button id="folgen" class="an" type="button">📍 Folgen</button>
-    <button id="ganze" type="button">🗺️ Ganze Strecke</button>
-    <a id="gmaps" href="#" target="_blank" rel="noopener">Google Maps</a>
-  </div>
 </div>
+
 <div id="gross-foto" role="dialog" aria-label="Foto">
   <button class="zu" type="button" aria-label="Schließen">✕</button>
   <button class="pfeil zurueck" type="button" aria-label="Vorheriges Foto">‹</button>
   <button class="pfeil vor" type="button" aria-label="Nächstes Foto">›</button>
-  <img alt="">
+  <img class="bild" alt="">
   <div class="unter"><div class="text"></div><small class="zeit"></small>
+    <div class="reakt"></div>
     <div class="foto-k"></div>
     <button class="k-knopf" type="button">💬 Kommentieren</button></div>
 </div>
 <div id="buch" role="dialog" aria-label="Reisebuch"><div class="innen">
-  <header><h1>📖 Reisebuch</h1><button class="zu" type="button" aria-label="Schließen">✕</button></header>
+  <header><img src="bilder/icon-192.png" alt=""><div><small>Reisebuch</small><h1 id="buch-titel">Motorradreise</h1></div>
+    <button class="zu" type="button" aria-label="Schließen">✕</button></header>
   <div id="buch-summe"></div>
   <div id="buch-tage"></div>
 </div></div>
-<div id="hinweis">📷 Neues Foto</div>
-<div id="meldung"><div><div style="font-size:48px">🏍️</div><h1 id="m-titel"></h1><p id="m-text"></p></div></div>
+<div id="hinweis"></div>
+<div id="meldung-voll"><div><img src="bilder/icon-192.png" alt=""><h1 id="m-titel"></h1><p id="m-text"></p></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
         integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
@@ -249,63 +359,87 @@
   const INTERVALL_MS = 10000;
   const LIVE_BIS_MIN = 2;      // jünger als 2 Min = live
   const SIGNAL_WEG_MIN = 30;   // älter als 30 Min = rot
+  const EMOJIS = ["❤️", "🔥", "😂", "👍", "😮"];
+  const PAUSE_ARTEN = { pause: "☕ Kaffeepause", tanken: "⛽ Tanken", essen: "🍽️ Essenspause", foto: "📸 Fotostopp", aussicht: "🌋 Aussicht genießen" };
 
   const $ = (id) => document.getElementById(id);
-  const token = (location.hash.slice(1) || new URLSearchParams(location.search).get("t") || "").trim();
+  const speicher = {
+    lesen(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    schreiben(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  };
 
-  function meldung(titel, text) {
-    $("m-titel").textContent = titel;
-    $("m-text").textContent = text;
-    $("meldung").classList.add("zeigen");
+  // Zugang: Schlüssel hinter "#". Als App vom Startbildschirm fehlt er, dann aus dem Speicher.
+  let token = (location.hash.slice(1) || new URLSearchParams(location.search).get("t") || "").trim();
+  if (token) speicher.schreiben("ansichtToken", token); else token = speicher.lesen("ansichtToken") || "";
+  function meldungVoll(titel, text) {
+    $("m-titel").textContent = titel; $("m-text").textContent = text; $("meldung-voll").classList.add("zeigen");
   }
-  if (!token) { meldung("Kein Zugang", "Bitte den vollständigen Link verwenden, den du bekommen hast."); return; }
+  if (!token) { meldungVoll("Kein Zugang", "Bitte den vollständigen Link verwenden, den du bekommen hast."); return; }
 
-  const karte = L.map("karte", { zoomControl: false, attributionControl: true }).setView([51.1, 10.4], 6);
+  // anonyme Kennung dieses Browsers für Reaktionen
+  let wer = speicher.lesen("werKennung");
+  if (!wer) {
+    wer = Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => b.toString(16).padStart(2, "0")).join("");
+    speicher.schreiben("werKennung", wer);
+  }
+
+  // ---------- Karte ----------
+  const karte = L.map("karte", { zoomControl: false }).setView([28.29, -16.6], 10);
   L.control.zoom({ position: "bottomright" }).addTo(karte);
-  // Kartenbilder ohne API-Schlüssel. Der Schlüssel hinter "#" wird nie mitgeschickt.
   const osmText = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
   const ebenen = {
+    "Satellit": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, attribution: "Bilder &copy; Esri" }),
     "Straße": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
       maxZoom: 19, className: "kacheln-strasse", attribution: osmText }),
     "Gelände": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
       maxZoom: 17, attribution: osmText + ', <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)' }),
-    "Satellit": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
-      maxZoom: 19, attribution: "Bilder &copy; Esri" }),
   };
-  let ebeneName = "Satellit";
-  try { const g = localStorage.getItem("karte"); if (g && ebenen[g]) ebeneName = g; } catch (e) {}
+  let ebeneName = speicher.lesen("karte");
+  if (!ebenen[ebeneName]) ebeneName = "Satellit";
   ebenen[ebeneName].addTo(karte);
   L.control.layers(ebenen, null, { position: "topright" }).addTo(karte);
-  karte.on("baselayerchange", (e) => { try { localStorage.setItem("karte", e.name); } catch (err) {} });
+  karte.on("baselayerchange", (e) => speicher.schreiben("karte", e.name));
+  const Legende = L.Control.extend({
+    onAdd() {
+      const d = L.DomUtil.create("div", "legende");
+      d.innerHTML = '<div class="balken"></div><div class="zahlen"><span>0</span><span>60</span><span>120+ km/h</span></div>';
+      return d;
+    },
+  });
+  new Legende({ position: "bottomleft" }).addTo(karte);
 
   const streckenGruppe = L.layerGroup().addTo(karte);
-  let motoMarker = null, startMarker = null;
-  let alle = [];     // alle geladenen Punkte
-  let punkte = [];   // nur die aktuelle Tour
-  let folgen = true;
-  let ersteAnsicht = true;
-  let fehlerZaehler = 0;
-  let cursor = null;
-  let fotoCursor = 0;
-  let fotos = [];          // alle geladenen Fotos
-  const fotoMarker = {};   // id -> Leaflet-Marker
-  let ersterAbruf = true;
   const fotoGruppe = L.layerGroup().addTo(karte);
-  let kCursor = 0;
-  let kommentare = [];
+  const meldungGruppe = L.layerGroup().addTo(karte);
+  let motoMarker = null, startMarker = null;
+
+  // ---------- Zustand ----------
+  let alle = [], punkte = [];
+  let fotos = [], kommentare = [];
+  let reaktionen = {};          // "foto:1" -> { "❤️": {anzahl, ich} }
+  let reaktionenText = "";
+  const fotoMarker = {}, meldungMarker = {};
+  let cursor = null, fotoCursor = 0, kCursor = 0;
+  let folgen = true, ersteAnsicht = true, ersterAbruf = true, fehlerZaehler = 0;
   const eigeneKommentare = new Set();
   let kFoto = null;
-  // Tage: angezeigter Tag (JJJJ-MM-TT), heutiger Tag der Reise und Liste aller Tage fürs Reisebuch
   let tag = null, heute = null, tage = [];
   try { const t = new URLSearchParams(location.search).get("tag"); if (/^\d{4}-\d{2}-\d{2}$/.test(t || "")) tag = t; } catch (e) {}
   const istHeute = () => !tag || tag === heute;
+  let replayAktiv = false;
 
   // ---------- Hilfsfunktionen ----------
   const rad = (g) => g * Math.PI / 180;
   function abstandKm(a, b) {
-    const R = 6371, dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
+    const dLat = rad(b.lat - a.lat), dLng = rad(b.lng - a.lng);
     const h = Math.sin(dLat / 2) ** 2 + Math.cos(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.sin(dLng / 2) ** 2;
-    return 2 * R * Math.asin(Math.sqrt(h));
+    return 2 * 6371 * Math.asin(Math.sqrt(h));
+  }
+  function peilung(a, b) {
+    const y = Math.sin(rad(b.lng - a.lng)) * Math.cos(rad(b.lat));
+    const x = Math.cos(rad(a.lat)) * Math.sin(rad(b.lat)) - Math.sin(rad(a.lat)) * Math.cos(rad(b.lat)) * Math.cos(rad(b.lng - a.lng));
+    return (Math.atan2(y, x) * 180 / Math.PI + 360) % 360;
   }
   const zeit = (p) => new Date(p.t).getTime();
   function dauerText(ms) {
@@ -317,10 +451,10 @@
     const s = Math.round(ms / 1000);
     if (s < 60) return "gerade eben";
     const m = Math.round(s / 60);
-    if (m < 60) return "vor " + m + " Min.";
-    return "vor " + dauerText(ms);
+    return m < 60 ? "vor " + m + " Min." : "vor " + dauerText(ms);
   }
   const uhr = (d) => new Date(d).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
+  const kmText = (km) => km.toFixed(km < 10 ? 1 : 0).replace(".", ",") + " km";
   function farbe(kmh) {
     if (kmh == null) return "#8892a0";
     if (kmh < 30) return "#2bb673";
@@ -329,28 +463,29 @@
     if (kmh < 120) return "#f77f00";
     return "#d0362b";
   }
+  function el(tag, klasse, text) {
+    const e = document.createElement(tag);
+    if (klasse) e.className = klasse;
+    if (text != null) e.textContent = text;
+    return e;
+  }
 
   // ---------- Auswertung ----------
-  function brauchbar(p) { return p.genau == null || p.genau <= 60; }
-
-  function auswerten() {
-    const gut = punkte.filter(brauchbar);
+  const brauchbar = (p) => p.genau == null || p.genau <= 60;
+  function auswerten(liste = punkte) {
+    const gut = liste.filter(brauchbar);
     let km = 0, fahrMs = 0, max = 0;
     for (let i = 1; i < gut.length; i++) {
-      const a = gut[i - 1], b = gut[i];
-      const dt = zeit(b) - zeit(a);
+      const a = gut[i - 1], b = gut[i], dt = zeit(b) - zeit(a);
       if (dt <= 0) continue;
-      const d = abstandKm(a, b);
-      const v = d / (dt / 3600000);
-      if (v > 300) continue;                 // GPS-Sprung ignorieren
-      if (d > 0.005) km += d;                // Zittern im Stand ignorieren
+      const d = abstandKm(a, b), v = d / (dt / 3600000);
+      if (v > 300) continue;
+      if (d > 0.005) km += d;
       if (dt < 3 * 60000 && (v > 4 || (b.kmh ?? 0) > 4)) fahrMs += dt;
       if (b.kmh != null && b.kmh > max && b.kmh < 300) max = b.kmh;
     }
     return { km, fahrMs, max, schnitt: fahrMs > 60000 ? km / (fahrMs / 3600000) : null };
   }
-
-  // Seit wann steht er still? (Punkte im Umkreis von 80 m)
   function standSeit() {
     if (punkte.length < 2) return null;
     const letzter = punkte[punkte.length - 1];
@@ -361,93 +496,157 @@
     }
     return zeit(letzter) - seit > 3 * 60000 ? seit : null;
   }
+  function aktuelleRichtung() {
+    const l = punkte[punkte.length - 1];
+    if (l.richtung != null && (l.kmh ?? 0) > 3) return l.richtung;
+    for (let i = punkte.length - 2; i >= 0; i--) {
+      if (abstandKm(punkte[i], l) > 0.03) return peilung(punkte[i], l);
+    }
+    return null;
+  }
 
   // ---------- Zeichnen ----------
-  function streckeZeichnen() {
-    streckenGruppe.clearLayers();
-    const gut = punkte.filter(brauchbar);
+  function streckeZeichnen(liste = punkte, gruppe = streckenGruppe, blass = false) {
+    gruppe.clearLayers();
+    const gut = liste.filter(brauchbar);
     if (gut.length < 2) return;
+    const stil = (f) => ({ color: blass ? "#ffffff" : f, weight: blass ? 4 : 5, opacity: blass ? .35 : .92 });
     let seg = [[gut[0].lat, gut[0].lng]], segFarbe = farbe(gut[1].kmh);
     for (let i = 1; i < gut.length; i++) {
-      const f = farbe(gut[i].kmh);
-      const p = [gut[i].lat, gut[i].lng];
-      // Lücken (Funkloch) gestrichelt verbinden
+      const f = farbe(gut[i].kmh), p = [gut[i].lat, gut[i].lng];
       if (zeit(gut[i]) - zeit(gut[i - 1]) > 5 * 60000) {
-        L.polyline(seg, { color: segFarbe, weight: 5, opacity: .9 }).addTo(streckenGruppe);
-        L.polyline([seg[seg.length - 1], p], { color: "#8892a0", weight: 3, dashArray: "6 8" }).addTo(streckenGruppe);
+        L.polyline(seg, stil(segFarbe)).addTo(gruppe);
+        L.polyline([seg[seg.length - 1], p], { color: "#8892a0", weight: 3, dashArray: "6 8" }).addTo(gruppe);
         seg = [p]; segFarbe = f; continue;
       }
       seg.push(p);
-      if (f !== segFarbe) {
-        L.polyline(seg, { color: segFarbe, weight: 5, opacity: .9 }).addTo(streckenGruppe);
-        seg = [p]; segFarbe = f;
-      }
+      if (f !== segFarbe && !blass) { L.polyline(seg, stil(segFarbe)).addTo(gruppe); seg = [p]; segFarbe = f; }
     }
-    if (seg.length > 1) L.polyline(seg, { color: segFarbe, weight: 5, opacity: .9 }).addTo(streckenGruppe);
+    if (seg.length > 1) L.polyline(seg, stil(segFarbe)).addTo(gruppe);
   }
 
-  function markerSetzen(alt) {
-    const p = punkte[punkte.length - 1];
-    const icon = L.divIcon({ className: "", html: '<div class="moto' + (alt ? " alt" : "") + '">🏍️</div>', iconSize: [38, 38], iconAnchor: [19, 19] });
-    if (!motoMarker) motoMarker = L.marker([p.lat, p.lng], { icon, zIndexOffset: 1000 }).addTo(karte);
-    else { motoMarker.setLatLng([p.lat, p.lng]); motoMarker.setIcon(icon); }
-    motoMarker.bindTooltip("Zuletzt: " + uhr(p.t));
-
+  // Motorrad gleitet sanft zur neuen Position und zeigt in Fahrtrichtung
+  let gleitAnimation = null;
+  function motorradSetzen(lat, lng, richtung, zustand) {
+    if (!motoMarker) {
+      const icon = L.divIcon({ className: "", html: '<div class="moto"><div class="pfeil"></div><div class="kreis">🏍️</div></div>', iconSize: [44, 44], iconAnchor: [22, 22] });
+      motoMarker = L.marker([lat, lng], { icon, zIndexOffset: 1000 }).addTo(karte);
+    }
+    const div = motoMarker.getElement()?.querySelector(".moto");
+    if (div) {
+      div.classList.toggle("alt", zustand === "alt");
+      div.classList.toggle("live", zustand === "live");
+      div.classList.toggle("ohne-richtung", richtung == null);
+      if (richtung != null) div.querySelector(".pfeil").style.transform = "rotate(" + richtung + "deg)";
+    }
+    const von = motoMarker.getLatLng();
+    if (gleitAnimation) cancelAnimationFrame(gleitAnimation);
+    if (von.lat === lat && von.lng === lng) return;
+    if (abstandKm({ lat: von.lat, lng: von.lng }, { lat, lng }) > 5 || document.hidden) { motoMarker.setLatLng([lat, lng]); return; }
+    const start = performance.now(), dauer = 1200;
+    const schritt = (jetzt) => {
+      const t = Math.min(1, (jetzt - start) / dauer), e = t < .5 ? 2 * t * t : 1 - (-2 * t + 2) ** 2 / 2;
+      motoMarker.setLatLng([von.lat + (lat - von.lat) * e, von.lng + (lng - von.lng) * e]);
+      if (t < 1) gleitAnimation = requestAnimationFrame(schritt);
+    };
+    gleitAnimation = requestAnimationFrame(schritt);
+  }
+  function startSetzen() {
     const s = punkte[0];
+    if (!s) return;
     const sIcon = L.divIcon({ className: "", html: '<div class="start"></div>', iconSize: [14, 14], iconAnchor: [7, 7] });
     if (!startMarker) startMarker = L.marker([s.lat, s.lng], { icon: sIcon }).addTo(karte).bindTooltip("Start " + uhr(s.t));
     else startMarker.setLatLng([s.lat, s.lng]).setTooltipContent("Start " + uhr(s.t));
   }
 
+  // ---------- Tacho ----------
+  function tachoSetzen(kmh) {
+    const max = 160, v = kmh == null ? 0 : Math.max(0, Math.min(max, kmh));
+    $("tacho-wert").textContent = kmh == null ? "–" : Math.round(kmh);
+    $("tacho-nadel").style.transform = "rotate(" + (-90 + 180 * v / max) + "deg)";
+    $("tacho-bogen").setAttribute("stroke-dasharray", (100 * v / max) + " 100");
+  }
+  function grossModus(rueckblick, km) {
+    $("tacho").toggleAttribute("hidden", rueckblick);   // SVG kennt die hidden-Eigenschaft nicht
+    $("tempo").hidden = !rueckblick;
+    if (rueckblick) $("tempo").innerHTML = (km == null ? "–" : kmText(km).replace(" km", "")) + "<span>km</span>";
+  }
+
+  // ---------- Fahrer-Meldungen ----------
+  function letzteMeldung() {
+    for (let i = kommentare.length - 1; i >= 0; i--) if (kommentare[i].art) return kommentare[i];
+    return null;
+  }
+  // Pause-Meldung gilt, solange er sich danach nicht deutlich bewegt hat
+  function aktivePause() {
+    const m = letzteMeldung();
+    if (!m || !istHeute()) return null;
+    const mt = new Date(m.t).getTime(), alter = Date.now() - mt;
+    const bewegt = punkte.some((p) => zeit(p) > mt + 2 * 60000 && (p.kmh ?? 0) > 10);
+    if (PAUSE_ARTEN[m.art] && alter < 90 * 60000 && !bewegt) return { text: PAUSE_ARTEN[m.art], seit: mt };
+    if (m.art === "angekommen" && alter < 6 * 3600000 && !bewegt) return { text: "🏁 Angekommen", seit: mt };
+    return null;
+  }
+
+  // ---------- Anzeige ----------
   function beschriftung(rueckblick) {
     $("w-hoehe").nextElementSibling.textContent = rueckblick ? "höchster Punkt" : "Höhe";
     $("w-akku").nextElementSibling.textContent = rueckblick ? "Akku am Ende" : "Handy-Akku";
   }
   function werteLeeren() {
     for (const id of ["w-km", "w-fahrzeit", "w-schnitt", "w-max", "w-hoehe", "w-akku"]) $(id).textContent = "–";
-    $("tempo").innerHTML = "–<span>km/h</span>";
+    tachoSetzen(null);
   }
 
   function anzeigen() {
     tagleisteZeichnen();
     beschriftung(!istHeute());
     $("folgen").hidden = !istHeute();
+    $("replay-knopf").hidden = punkte.length < 2;
+    if (replayAktiv) return;
+    fotosZeichnen();
+    meldungenZeichnen();
     if (!punkte.length) {
-      $("status").className = "";
+      $("status").className = "pille";
       $("statustext").innerHTML = istHeute() ? "Heute noch keine Fahrt <small>· warte auf Start</small>" : "📖 Rückblick <small>· keine Strecke an diesem Tag</small>";
       $("ort").textContent = istHeute() ? "Sobald Traccar sendet, erscheint hier die Strecke." : "";
+      grossModus(!istHeute(), null);
       werteLeeren();
-      fotosZeichnen();
-      if (ersteAnsicht && fotos.length) { karte.fitBounds(L.latLngBounds(fotos.filter((f) => f.lat != null).map((f) => [f.lat, f.lng])), { padding: [60, 60], maxZoom: 14 }); ersteAnsicht = false; }
+      if (ersteAnsicht && fotos.some((f) => f.lat != null)) {
+        karte.fitBounds(L.latLngBounds(fotos.filter((f) => f.lat != null).map((f) => [f.lat, f.lng])), { padding: [60, 60], maxZoom: 14 });
+        ersteAnsicht = false;
+      }
       return;
     }
     if (!istHeute()) { rueckblickAnzeigen(); return; }
+
     const letzter = punkte[punkte.length - 1];
     const alterMs = Date.now() - zeit(letzter);
     const live = alterMs < LIVE_BIS_MIN * 60000;
     const stand = standSeit();
-
+    const pause = aktivePause();
     const st = $("status"), tx = $("statustext");
-    // Hinweis: Traccar sendet im Stillstand nichts, um Akku zu sparen.
-    // Keine neuen Punkte heißt daher meist "Pause", manchmal "Funkloch".
-    if (alterMs > SIGNAL_WEG_MIN * 60000) {
-      st.className = "weg";
+    if (pause) {
+      st.className = "pille pause";
+      tx.innerHTML = "";
+      tx.append(pause.text + " ", Object.assign(el("small"), { textContent: "· seit " + dauerText(Math.max(Date.now() - pause.seit, 60000)) }));
+    } else if (alterMs > SIGNAL_WEG_MIN * 60000) {
+      st.className = "pille weg";
       tx.innerHTML = "Länger keine Meldung <small>· letzte " + uhr(letzter.t) + " Uhr</small>";
     } else if (live && !stand) {
-      st.className = "live";
+      st.className = "pille live";
       tx.innerHTML = "Live unterwegs <small>· " + vorText(alterMs) + "</small>";
     } else {
       const seit = stand ? Date.now() - stand : alterMs;
-      st.className = "pause";
+      st.className = "pille pause";
       tx.innerHTML = "Pause / Stillstand <small>· seit " + dauerText(Math.max(seit, 60000)) + "</small>";
     }
 
-    const kmh = live && letzter.kmh != null && !stand ? Math.round(letzter.kmh) : null;
-    $("tempo").innerHTML = (kmh == null ? "–" : kmh) + "<span>km/h</span>";
+    grossModus(false);
+    tachoSetzen(live && letzter.kmh != null && !stand && !pause ? letzter.kmh : 0);
     $("ort").textContent = "Letzte Position " + uhr(letzter.t) + " Uhr · unterwegs seit " + uhr(punkte[0].t);
-
     const a = auswerten();
-    $("w-km").textContent = a.km.toFixed(a.km < 10 ? 1 : 0).replace(".", ",") + " km";
+    $("w-km").textContent = kmText(a.km);
     $("w-fahrzeit").textContent = dauerText(a.fahrMs);
     $("w-schnitt").textContent = a.schnitt ? Math.round(a.schnitt) : "–";
     $("w-max").textContent = a.max >= 1 ? Math.round(a.max) : "–";
@@ -455,22 +654,23 @@
     $("w-akku").textContent = letzter.akku != null ? Math.round(letzter.akku) + " %" + (letzter.laedt ? " ⚡" : "") : "–";
     $("gmaps").href = "https://www.google.com/maps/search/?api=1&query=" + letzter.lat + "," + letzter.lng;
 
-    markerSetzen(!live);
     streckeZeichnen();
-    fotosZeichnen();
+    startSetzen();
+    motorradSetzen(letzter.lat, letzter.lng, live ? aktuelleRichtung() : null, live && !stand ? "live" : (live ? "" : "alt"));
+    umgebungAktualisieren(letzter);
     if (ersteAnsicht) { ganzeStrecke(); ersteAnsicht = false; }
     else if (folgen) karte.panTo([letzter.lat, letzter.lng], { animate: true });
   }
 
-  // Vergangener Tag: Tageszusammenfassung statt Live-Werten
   function rueckblickAnzeigen() {
     const a = auswerten();
     const erster = punkte[0], letzter = punkte[punkte.length - 1];
-    $("status").className = "";
+    $("status").className = "pille";
     $("statustext").innerHTML = "📖 Rückblick <small>· " + uhr(erster.t) + "–" + uhr(letzter.t) + " Uhr</small>";
-    $("tempo").innerHTML = a.km.toFixed(a.km < 10 ? 1 : 0).replace(".", ",") + "<span>km</span>";
+    $("umgebung").hidden = true;
+    grossModus(true, a.km);
     $("ort").textContent = "unterwegs von " + uhr(erster.t) + " bis " + uhr(letzter.t) + " Uhr";
-    $("w-km").textContent = a.km.toFixed(a.km < 10 ? 1 : 0).replace(".", ",") + " km";
+    $("w-km").textContent = kmText(a.km);
     $("w-fahrzeit").textContent = dauerText(a.fahrMs);
     $("w-schnitt").textContent = a.schnitt ? Math.round(a.schnitt) : "–";
     $("w-max").textContent = a.max >= 1 ? Math.round(a.max) : "–";
@@ -478,10 +678,52 @@
     $("w-hoehe").textContent = hoehen.length ? Math.round(Math.max(...hoehen)) + " m" : "–";
     $("w-akku").textContent = letzter.akku != null ? Math.round(letzter.akku) + " %" : "–";
     $("gmaps").href = "https://www.google.com/maps/search/?api=1&query=" + letzter.lat + "," + letzter.lng;
-    markerSetzen(true);
     streckeZeichnen();
-    fotosZeichnen();
+    startSetzen();
+    motorradSetzen(letzter.lat, letzter.lng, null, "alt");
     if (ersteAnsicht) { ganzeStrecke(); ersteAnsicht = false; }
+  }
+
+  function ganzeStrecke() {
+    const orte = punkte.map((p) => [p.lat, p.lng]).concat(fotos.filter((f) => f.lat != null).map((f) => [f.lat, f.lng]));
+    if (!orte.length) return;
+    if (orte.length === 1) { karte.setView(orte[0], 14); return; }
+    karte.fitBounds(L.latLngBounds(orte), { padding: [60, 60], maxZoom: 15 });
+  }
+
+  // ---------- Wetter und Ortsname am aktuellen Standort ----------
+  const WETTER = [[0, "☀️", "🌙", "klar"], [1, "🌤️", "🌙", "heiter"], [2, "⛅", "☁️", "wolkig"], [3, "☁️", "☁️", "bedeckt"],
+    [48, "🌫️", "🌫️", "Nebel"], [57, "🌦️", "🌧️", "Niesel"], [67, "🌧️", "🌧️", "Regen"], [77, "❄️", "❄️", "Schnee"],
+    [82, "🌧️", "🌧️", "Schauer"], [86, "🌨️", "🌨️", "Schneeschauer"], [99, "⛈️", "⛈️", "Gewitter"]];
+  let wetter = null, wetterOrt = null, wetterZeit = 0;
+  let ortsname = null, ortsOrt = null, ortsZeit = 0;
+  async function umgebungAktualisieren(p) {
+    const jetzt = Date.now();
+    if (!wetterOrt || abstandKm(wetterOrt, p) > 8 || jetzt - wetterZeit > 15 * 60000) {
+      wetterOrt = { lat: p.lat, lng: p.lng }; wetterZeit = jetzt;
+      try {
+        const r = await fetch("https://api.open-meteo.com/v1/forecast?latitude=" + p.lat.toFixed(3) + "&longitude=" + p.lng.toFixed(3)
+          + "&current=temperature_2m,weather_code,wind_speed_10m,is_day&timezone=auto");
+        const d = await r.json();
+        const c = d.current, w = WETTER.find((x) => c.weather_code <= x[0]) || WETTER[WETTER.length - 1];
+        wetter = (c.is_day ? w[1] : w[2]) + " " + Math.round(c.temperature_2m) + "° · 💨 " + Math.round(c.wind_speed_10m) + " km/h";
+      } catch (e) {}
+    }
+    if (!ortsOrt || (abstandKm(ortsOrt, p) > 1 && jetzt - ortsZeit > 60000)) {
+      ortsOrt = { lat: p.lat, lng: p.lng }; ortsZeit = jetzt;
+      try {
+        const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=de&lat="
+          + p.lat.toFixed(4) + "&lon=" + p.lng.toFixed(4));
+        const d = await r.json(), a = d.address || {};
+        ortsname = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || a.county || null;
+      } catch (e) {}
+    }
+    const teile = [];
+    if (ortsname) teile.push("📍 bei " + ortsname);
+    if (wetter) teile.push(wetter);
+    const u = $("umgebung");
+    u.hidden = !teile.length || !istHeute() || replayAktiv;
+    u.textContent = teile.join("  ·  ");
   }
 
   // ---------- Tage und Reisebuch ----------
@@ -509,8 +751,14 @@
     $("tag-zurueck").disabled = i <= 0;
     $("tag-vor").disabled = i < 0 || i >= liste.length - 1;
   }
+  function titelSetzen(t) {
+    if (!t) return;
+    $("titel").textContent = t; $("buch-titel").textContent = t;
+    document.title = t + " · Motorrad Live";
+  }
   function wechsleTag(d) {
     if (!d || d === (tag || heute)) return;
+    replayBeenden();
     tag = d === heute ? null : d;
     try {
       const u = new URL(location.href);
@@ -519,18 +767,19 @@
     } catch (e) {}
     neuLaden();
   }
-  // alles vom vorherigen Tag zurücksetzen und den gewählten Tag laden
   function neuLaden() {
-    alle = []; punkte = []; fotos = []; kommentare = [];
+    alle = []; punkte = []; fotos = []; kommentare = []; reaktionen = {}; reaktionenText = "";
     cursor = null; fotoCursor = 0; kCursor = 0;
-    streckenGruppe.clearLayers(); fotoGruppe.clearLayers();
+    streckenGruppe.clearLayers(); fotoGruppe.clearLayers(); meldungGruppe.clearLayers();
     for (const id in fotoMarker) delete fotoMarker[id];
+    for (const id in meldungMarker) delete meldungMarker[id];
     if (motoMarker) { karte.removeLayer(motoMarker); motoMarker = null; }
     if (startMarker) { karte.removeLayer(startMarker); startMarker = null; }
     ersteAnsicht = true; ersterAbruf = true;
     folgen = istHeute(); $("folgen").classList.toggle("an", folgen);
     kFotoSetzen(null);
     kommentareZeichnen(); fotosZeichnen(); werteLeeren(); tagleisteZeichnen();
+    $("umgebung").hidden = true;
     $("statustext").textContent = "Lade …";
     laden();
   }
@@ -543,15 +792,40 @@
       if (!r.ok) return;
       const d = await r.json();
       tage = d.tage; heute = d.heute;
+      titelSetzen(d.titel);
       tagleisteZeichnen();
       if ($("buch").classList.contains("zeigen")) buchZeichnen();
     } catch (e) {}
   }
+
+  // Mini-Karte eines Tages als SVG
+  function miniKarte(linie) {
+    const ns = "http://www.w3.org/2000/svg", svg = document.createElementNS(ns, "svg");
+    svg.setAttribute("viewBox", "0 0 110 90");
+    if (!linie || linie.length < 2) return svg;
+    const kos = Math.cos(rad(linie[0][0]));
+    const xs = linie.map((p) => p[1] * kos), ys = linie.map((p) => -p[0]);
+    const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
+    const m = 74 / Math.max(maxX - minX, maxY - minY, 1e-6);
+    const ox = (110 - (maxX - minX) * m) / 2, oy = (90 - (maxY - minY) * m) / 2;
+    const pkt = linie.map((p, i) => [ox + (xs[i] - minX) * m, oy + (ys[i] - minY) * m]);
+    const pfad = document.createElementNS(ns, "polyline");
+    pfad.setAttribute("points", pkt.map((p) => p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" "));
+    pfad.setAttribute("fill", "none"); pfad.setAttribute("stroke", "var(--lava)"); pfad.setAttribute("stroke-width", "3");
+    pfad.setAttribute("stroke-linejoin", "round"); pfad.setAttribute("stroke-linecap", "round");
+    svg.appendChild(pfad);
+    for (const [p, f] of [[pkt[0], "var(--gruen)"], [pkt[pkt.length - 1], "var(--lava-dunkel)"]]) {
+      const c = document.createElementNS(ns, "circle");
+      c.setAttribute("cx", p[0]); c.setAttribute("cy", p[1]); c.setAttribute("r", "4.5"); c.setAttribute("fill", f);
+      c.setAttribute("stroke", "#fff"); c.setAttribute("stroke-width", "1.5");
+      svg.appendChild(c);
+    }
+    return svg;
+  }
   function buchZeichnen() {
     const summe = tage.reduce((s, t) => ({ km: s.km + t.km, fz: s.fz + t.fahrzeit_s, fotos: s.fotos + t.fotos, k: s.k + t.kommentare,
       max: Math.max(s.max, t.max_kmh || 0) }), { km: 0, fz: 0, fotos: 0, k: 0, max: 0 });
-    const kachel = (wert, text) => { const d = document.createElement("div"); const b = document.createElement("b"); b.textContent = wert;
-      const s = document.createElement("small"); s.textContent = text; d.append(b, s); return d; };
+    const kachel = (wert, text) => { const d = el("div"); d.append(el("b", null, wert), el("small", null, text)); return d; };
     $("buch-summe").replaceChildren(
       kachel(tage.length, tage.length === 1 ? "Tag" : "Tage"),
       kachel(Math.round(summe.km).toLocaleString("de-DE") + " km", "gefahren"),
@@ -561,90 +835,150 @@
       kachel(summe.k, "Kommentare"));
     const liste = $("buch-tage");
     liste.textContent = "";
-    if (!tage.length) {
-      const p = document.createElement("p"); p.className = "leer";
-      p.textContent = "Noch keine Tage. Sobald die erste Fahrt beginnt, entsteht hier das Reisebuch. 🏍️";
-      liste.appendChild(p); return;
-    }
+    if (!tage.length) { liste.appendChild(el("p", "leer", "Noch keine Tage. Sobald die erste Fahrt beginnt, entsteht hier das Reisebuch. 🏍️")); return; }
     for (const t of tage.slice().reverse()) {
-      const k = document.createElement("button");
-      k.type = "button"; k.className = "tagkarte" + (t.datum === (tag || heute) ? " aktiv" : "");
-      const h2 = document.createElement("h2"); h2.textContent = "Tag " + t.nr;
-      const sm = document.createElement("small"); sm.textContent = datumText(t.datum, true) + (t.datum === heute ? " · heute" : "");
-      h2.appendChild(sm);
-      const z = document.createElement("div"); z.className = "zahlen";
-      const teile = [];
-      if (t.km > 0.05) teile.push(t.km.toFixed(t.km < 10 ? 1 : 0).replace(".", ",") + " km");
-      if (t.fahrzeit_s > 60) teile.push(dauerText(t.fahrzeit_s * 1000) + " Fahrzeit");
-      if (t.max_kmh) teile.push("max. " + t.max_kmh + " km/h");
-      if (t.start && t.ende) teile.push(uhr(t.start) + "–" + uhr(t.ende) + " Uhr");
-      if (t.fotos) teile.push("📷 " + t.fotos);
-      if (t.kommentare) teile.push("💬 " + t.kommentare);
-      z.textContent = teile.join(" · ") || "keine Strecke";
-      k.append(h2, z);
-      if (t.foto_ids.length) {
-        const b = document.createElement("div"); b.className = "bilder";
-        for (const id of t.foto_ids) { const img = document.createElement("img"); img.alt = ""; img.loading = "lazy"; img.src = fotoUrl(id, true); b.appendChild(img); }
-        k.appendChild(b);
+      const s = el("button", "seite" + (t.datum === (tag || heute) ? " aktiv" : ""));
+      s.type = "button";
+      const tb = el("div", "titelbild");
+      if (t.titelfoto) { const img = el("img"); img.alt = ""; img.loading = "lazy"; img.src = fotoUrl(t.titelfoto, false); tb.appendChild(img); }
+      const ueber = el("div", "ueber");
+      ueber.append(el("b", null, "Tag " + t.nr), el("span", null, datumText(t.datum, true) + (t.datum === heute ? " · heute" : "")));
+      tb.appendChild(ueber);
+      s.appendChild(tb);
+      const k = el("div", "koerper");
+      k.appendChild(miniKarte(t.linie));
+      const z = el("div", "zahlen");
+      const zahl = (wert, text) => { const d = el("div"); d.append(el("b", null, wert), el("small", null, text)); return d; };
+      z.append(zahl(t.km > 0.05 ? kmText(t.km) : "–", "gefahren"), zahl(t.fahrzeit_s > 60 ? dauerText(t.fahrzeit_s * 1000) : "–", "Fahrzeit"),
+        zahl(t.max_kmh ? t.max_kmh + " km/h" : "–", "Höchsttempo"),
+        zahl(t.start ? uhr(t.start) + "–" + uhr(t.ende) : "–", "unterwegs"));
+      k.appendChild(z);
+      s.appendChild(k);
+      for (const zi of t.zitate || []) {
+        const q = el("blockquote", null, "„" + zi.text + "“");
+        q.appendChild(el("small", null, "— " + (zi.fahrer ? "🏍️ " : "") + zi.name));
+        s.appendChild(q);
       }
-      k.onclick = () => { $("buch").classList.remove("zeigen"); wechsleTag(t.datum); };
-      liste.appendChild(k);
+      const weitere = t.foto_ids.filter((id) => id !== t.titelfoto);
+      if (weitere.length || t.fotos || t.kommentare) {
+        const b = el("div", "bilder");
+        for (const id of weitere.slice(0, 6)) { const img = el("img"); img.alt = ""; img.loading = "lazy"; img.src = fotoUrl(id, true); b.appendChild(img); }
+        const info = el("span", null, [t.fotos ? "📷 " + t.fotos : "", t.kommentare ? "💬 " + t.kommentare : ""].filter(Boolean).join("  "));
+        info.style.cssText = "align-self:center;color:var(--leise);font-size:13px;margin-left:auto;white-space:nowrap";
+        b.appendChild(info);
+        s.appendChild(b);
+      } else s.appendChild(el("div", "platz"));
+      s.onclick = () => { $("buch").classList.remove("zeigen"); wechsleTag(t.datum); };
+      liste.appendChild(s);
     }
   }
-  $("buch-knopf").onclick = () => { buchZeichnen(); $("buch").classList.add("zeigen"); tageLaden(); };
+  $("buch-knopf").onclick = () => { buchZeichnen(); $("buch").classList.add("zeigen"); $("buch").scrollTop = 0; tageLaden(); };
   $("buch").querySelector(".zu").onclick = () => $("buch").classList.remove("zeigen");
 
-  function ganzeStrecke() {
-    if (!punkte.length) return;
-    if (punkte.length === 1) { karte.setView([punkte[0].lat, punkte[0].lng], 14); return; }
-    karte.fitBounds(L.latLngBounds(punkte.map((p) => [p.lat, p.lng])), { padding: [60, 60], maxZoom: 15 });
+  // ---------- Reaktionen ----------
+  const rKey = (typ, id) => typ + ":" + id;
+  function reaktionenSetzen(liste) {
+    const neu = {};
+    for (const r of liste || []) {
+      const k = rKey(r.typ, r.id);
+      (neu[k] = neu[k] || {})[r.emoji] = { anzahl: r.anzahl, ich: r.ich };
+    }
+    const text = JSON.stringify(neu);
+    if (text === reaktionenText) return false;
+    reaktionen = neu; reaktionenText = text;
+    return true;
+  }
+  async function reagieren(typ, id, emoji) {
+    // sofort anzeigen, der nächste Abruf bringt die echten Zahlen
+    const k = rKey(typ, id), r = (reaktionen[k] = reaktionen[k] || {}), alt = r[emoji] || { anzahl: 0, ich: false };
+    r[emoji] = { anzahl: Math.max(0, alt.anzahl + (alt.ich ? -1 : 1)), ich: !alt.ich };
+    if (!r[emoji].anzahl) delete r[emoji];
+    reaktionenText = JSON.stringify(reaktionen);
+    reaktionenNeuZeichnen();
+    try {
+      await fetch(API + "?ansicht=" + encodeURIComponent(token) + "&reaktion=1", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ziel_typ: typ, ziel_id: id, emoji, wer }) });
+    } catch (e) {}
+  }
+  // Leiste mit Reaktionen; "alle" zeigt alle fünf Emojis, sonst nur vorhandene plus "+"
+  function reaktionsLeiste(typ, id, alleZeigen) {
+    const box = el("div", "reakt");
+    const r = reaktionen[rKey(typ, id)] || {};
+    const knopf = (emoji) => {
+      const b = el("button", r[emoji]?.ich ? "ich" : "", emoji + (r[emoji] ? " " + r[emoji].anzahl : ""));
+      b.type = "button"; b.title = "Reagieren";
+      b.onclick = (e) => { e.stopPropagation(); reagieren(typ, id, emoji); };
+      return b;
+    };
+    if (alleZeigen) { for (const e of EMOJIS) box.appendChild(knopf(e)); return box; }
+    for (const e of EMOJIS) if (r[e]) box.appendChild(knopf(e));
+    const mehr = el("button", "mehr", "☺︎ +");
+    mehr.type = "button"; mehr.title = "Reaktion hinzufügen";
+    mehr.onclick = (e) => {
+      e.stopPropagation();
+      const auswahl = el("span", "auswahl");
+      for (const em of EMOJIS) auswahl.appendChild(knopf(em));
+      mehr.replaceWith(auswahl);
+    };
+    box.appendChild(mehr);
+    return box;
+  }
+  function reaktionenNeuZeichnen() {
+    kommentareZeichnen();
+    fotoleisteZeichnen();
+    if ($("gross-foto").classList.contains("zeigen") && aktuellesFoto) {
+      $("gross-foto").querySelector(".reakt").replaceWith(reaktionsLeiste("foto", aktuellesFoto, true));
+    }
   }
 
   // ---------- Fotos ----------
   const fotoUrl = (id, klein) => API + "?ansicht=" + encodeURIComponent(token) + "&foto=" + id + (klein ? "&klein=1" : "");
-  function tourFotos() {
-    return fotos;
-  }
   function fotosZeichnen() {
-    const sichtbar = tourFotos();
-    const ids = new Set(sichtbar.map((f) => f.id));
+    const ids = new Set(fotos.map((f) => f.id));
     for (const id in fotoMarker) if (!ids.has(Number(id))) { fotoGruppe.removeLayer(fotoMarker[id]); delete fotoMarker[id]; }
-    for (const f of sichtbar) {
+    for (const f of fotos) {
       if (fotoMarker[f.id] || f.lat == null) continue;
       const icon = L.divIcon({ className: "", html: '<div class="foto-pin"><img alt="" src="' + fotoUrl(f.id, true) + '"></div>', iconSize: [46, 46], iconAnchor: [23, 23] });
       fotoMarker[f.id] = L.marker([f.lat, f.lng], { icon, zIndexOffset: 500 }).addTo(fotoGruppe).on("click", () => fotoZeigen(f.id));
     }
+    fotoleisteZeichnen();
+  }
+  function fotoleisteZeichnen() {
     const leiste = $("fotoleiste");
     leiste.textContent = "";
-    for (const f of sichtbar.slice().reverse()) {
-      const b = document.createElement("button");
-      b.type = "button"; b.title = f.titel || "Foto " + uhr(f.t);
-      const img = document.createElement("img"); img.alt = f.titel || "Foto"; img.loading = "lazy"; img.src = fotoUrl(f.id, true);
-      b.appendChild(img); b.onclick = () => fotoZeigen(f.id);
+    for (const f of fotos.slice().reverse()) {
+      const b = el("button"); b.type = "button"; b.title = f.titel || "Foto " + uhr(f.t);
+      const img = el("img"); img.alt = f.titel || "Foto"; img.loading = "lazy"; img.src = fotoUrl(f.id, true);
+      b.appendChild(img);
+      const r = reaktionen[rKey("foto", f.id)];
+      const summe = r ? Object.values(r).reduce((s, x) => s + x.anzahl, 0) : 0;
+      if (summe) b.appendChild(el("span", "herz", "❤️ " + summe));
+      b.onclick = () => fotoZeigen(f.id);
       leiste.appendChild(b);
     }
-    $("fotos").style.display = sichtbar.length ? "block" : "none";
-    $("fotos-titel").textContent = sichtbar.length === 1 ? "1 Foto" : sichtbar.length + " Fotos";
+    $("fotos").hidden = !fotos.length;
+    $("fotos-titel").textContent = fotos.length === 1 ? "📷 1 Foto" : "📷 " + fotos.length + " Fotos";
   }
   let aktuellesFoto = null;
   function fotoZeigen(id) {
-    const liste = tourFotos(), i = liste.findIndex((f) => f.id === id);
+    const i = fotos.findIndex((f) => f.id === id);
     if (i < 0) return;
-    const f = liste[i];
+    const f = fotos[i];
     aktuellesFoto = id;
     const box = $("gross-foto");
-    box.querySelector("img").src = fotoUrl(f.id, false);
+    box.querySelector("img.bild").src = fotoUrl(f.id, false);
     box.querySelector(".text").textContent = f.titel || "";
     box.querySelector(".zeit").textContent = uhr(f.t) + " Uhr";
-    fotoKommentareZeigen();
+    box.querySelector(".reakt").replaceWith(reaktionsLeiste("foto", f.id, true));
     box.querySelector(".zurueck").style.visibility = i > 0 ? "visible" : "hidden";
-    box.querySelector(".vor").style.visibility = i < liste.length - 1 ? "visible" : "hidden";
+    box.querySelector(".vor").style.visibility = i < fotos.length - 1 ? "visible" : "hidden";
+    fotoKommentareZeigen();
     box.classList.add("zeigen");
-    if (f.lat != null) { folgen = false; $("folgen").classList.remove("an"); karte.setView([f.lat, f.lng], Math.max(karte.getZoom(), 14)); }
+    if (f.lat != null && !replayAktiv) { folgen = false; $("folgen").classList.remove("an"); karte.setView([f.lat, f.lng], Math.max(karte.getZoom(), 14)); }
   }
   function fotoBlaettern(r) {
-    const liste = tourFotos(), i = liste.findIndex((f) => f.id === aktuellesFoto);
-    if (liste[i + r]) fotoZeigen(liste[i + r].id);
+    const i = fotos.findIndex((f) => f.id === aktuellesFoto);
+    if (fotos[i + r]) fotoZeigen(fotos[i + r].id);
   }
   const fotoZu = () => $("gross-foto").classList.remove("zeigen");
   $("gross-foto").querySelector(".zu").onclick = fotoZu;
@@ -652,51 +986,67 @@
   $("gross-foto").querySelector(".vor").onclick = (e) => { e.stopPropagation(); fotoBlaettern(1); };
   $("gross-foto").onclick = (e) => { if (e.target.id === "gross-foto") fotoZu(); };
   document.addEventListener("keydown", (e) => {
-    if (!$("gross-foto").classList.contains("zeigen")) return;
-    if (e.key === "Escape") fotoZu();
-    if (e.key === "ArrowLeft") fotoBlaettern(-1);
-    if (e.key === "ArrowRight") fotoBlaettern(1);
+    if ($("gross-foto").classList.contains("zeigen")) {
+      if (e.key === "Escape") fotoZu();
+      if (e.key === "ArrowLeft") fotoBlaettern(-1);
+      if (e.key === "ArrowRight") fotoBlaettern(1);
+    } else if (e.key === "Escape") $("buch").classList.remove("zeigen");
   });
-  // ---------- Kommentare ----------
   function fotoKommentareZeigen() {
     const box = $("gross-foto").querySelector(".foto-k");
     box.textContent = "";
     for (const k of kommentare.filter((k) => k.foto_id === aktuellesFoto)) {
-      const d = document.createElement("div");
-      const b = document.createElement("b"); b.textContent = (k.fahrer ? "🏍️ " : "") + k.name + ": ";
-      d.append(b, document.createTextNode(k.text));
+      const d = el("div");
+      d.append(el("b", null, (k.fahrer ? "🏍️ " : "") + k.name + ": "), document.createTextNode(k.text));
       box.appendChild(d);
     }
+  }
+
+  // ---------- Kommentare und Meldungen ----------
+  function meldungenZeichnen() {
+    const sichtbar = new Set();
+    for (const k of kommentare) {
+      if (!k.art || k.lat == null) continue;
+      sichtbar.add(k.id);
+      if (meldungMarker[k.id]) continue;
+      const emoji = Array.from(k.text)[0] || "📍";
+      const icon = L.divIcon({ className: "", html: '<div class="meldung-pin">' + emoji + "</div>", iconSize: [34, 34], iconAnchor: [4, 34] });
+      meldungMarker[k.id] = L.marker([k.lat, k.lng], { icon, zIndexOffset: 400 }).addTo(meldungGruppe).bindTooltip(k.text + " · " + uhr(k.t));
+    }
+    for (const id in meldungMarker) if (!sichtbar.has(Number(id))) { meldungGruppe.removeLayer(meldungMarker[id]); delete meldungMarker[id]; }
   }
   function kommentareZeichnen() {
     const liste = $("k-liste");
     const unten = liste.scrollHeight - liste.scrollTop - liste.clientHeight < 40;
     liste.textContent = "";
     for (const k of kommentare) {
-      const el = document.createElement("div");
-      el.className = "k" + (k.fahrer ? " fahrer" : "");
-      if (k.foto_id) {
-        const m = document.createElement("button");
-        m.type = "button"; m.className = "mini"; m.title = "Foto ansehen";
-        const img = document.createElement("img"); img.alt = "Foto"; img.loading = "lazy"; img.src = fotoUrl(k.foto_id, true);
-        m.appendChild(img); m.onclick = () => fotoZeigen(k.foto_id);
-        el.appendChild(m);
+      if (k.art) {
+        const m = el("button", "meldung");
+        m.type = "button";
+        m.append("🏍️ " + k.text + " ", el("small", null, uhr(k.t)));
+        if (k.lat != null) m.onclick = () => { folgen = false; $("folgen").classList.remove("an"); karte.setView([k.lat, k.lng], 15); };
+        liste.appendChild(m);
+        continue;
       }
-      const inhalt = document.createElement("div"); inhalt.className = "inhalt";
-      const b = document.createElement("b"); b.textContent = (k.fahrer ? "🏍️ " : "") + k.name;
-      const s = document.createElement("small"); s.textContent = uhr(k.t);
-      const p = document.createElement("p"); p.textContent = k.text;
-      inhalt.append(b, s, p);
-      el.appendChild(inhalt);
-      liste.appendChild(el);
+      const e = el("div", "k" + (k.fahrer ? " fahrer" : ""));
+      if (k.foto_id) {
+        const m = el("button", "mini"); m.type = "button"; m.title = "Foto ansehen";
+        const img = el("img"); img.alt = "Foto"; img.loading = "lazy"; img.src = fotoUrl(k.foto_id, true);
+        m.appendChild(img); m.onclick = () => fotoZeigen(k.foto_id);
+        e.appendChild(m);
+      }
+      const inhalt = el("div", "inhalt");
+      inhalt.append(el("b", null, (k.fahrer ? "🏍️ " : "") + k.name), el("small", null, uhr(k.t)), el("p", null, k.text), reaktionsLeiste("kommentar", k.id, false));
+      e.appendChild(inhalt);
+      liste.appendChild(e);
     }
     if (unten) liste.scrollTop = liste.scrollHeight;
-    $("k-titel").textContent = "💬 Kommentare" + (kommentare.length ? " (" + kommentare.length + ")" : "");
+    const echte = kommentare.filter((k) => !k.art).length;
+    $("k-titel").textContent = "💬 Kommentare" + (echte ? " (" + echte + ")" : "");
     if ($("gross-foto").classList.contains("zeigen")) fotoKommentareZeigen();
   }
 
-  let meinName = "";
-  try { meinName = localStorage.getItem("kommentarName") || ""; } catch (e) {}
+  let meinName = speicher.lesen("kommentarName") || "";
   function nameAnzeigen() {
     $("k-name").hidden = !!meinName;
     $("k-als").hidden = !meinName;
@@ -704,7 +1054,6 @@
   }
   nameAnzeigen();
   $("k-name-aendern").onclick = () => { $("k-name").value = meinName; meinName = ""; nameAnzeigen(); $("k-name").focus(); };
-
   function kFotoSetzen(id) {
     kFoto = id;
     $("k-foto").hidden = !id;
@@ -718,13 +1067,11 @@
     $("kommentare").scrollIntoView({ behavior: "smooth", block: "end" });
     (meinName ? $("k-text") : $("k-name")).focus();
   };
-
   let sendet = false;
   $("k-form").onsubmit = async (e) => {
     e.preventDefault();
     if (sendet) return;
-    const name = (meinName || $("k-name").value).trim();
-    const text = $("k-text").value.trim();
+    const name = (meinName || $("k-name").value).trim(), text = $("k-text").value.trim();
     $("k-fehler").textContent = "";
     if (!name) { $("k-fehler").textContent = "Bitte gib deinen Namen ein."; $("k-name").focus(); return; }
     if (!text) { $("k-text").focus(); return; }
@@ -736,11 +1083,8 @@
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.fehler || "Senden fehlgeschlagen");
       eigeneKommentare.add(d.id);
-      meinName = name;
-      try { localStorage.setItem("kommentarName", name); } catch (err) {}
-      nameAnzeigen();
-      $("k-text").value = "";
-      kFotoSetzen(null);
+      meinName = name; speicher.schreiben("kommentarName", name); nameAnzeigen();
+      $("k-text").value = ""; kFotoSetzen(null);
       $("k-liste").scrollTop = $("k-liste").scrollHeight;
       laden();
     } catch (err) {
@@ -748,18 +1092,136 @@
     } finally { sendet = false; }
   };
 
+  // ---------- Hinweise ----------
   let hinweisTimer;
-  function neuesFotoHinweis(id) {
-    hinweis("📷 Neues Foto", () => fotoZeigen(id));
-  }
   function hinweis(text, aktion) {
     const h = $("hinweis");
     h.textContent = text;
-    h.style.display = "block";
-    h.onclick = () => { h.style.display = "none"; aktion(); };
+    h.style.display = "none"; void h.offsetWidth; h.style.display = "block";
+    h.onclick = () => { h.style.display = "none"; if (aktion) aktion(); };
     clearTimeout(hinweisTimer);
     hinweisTimer = setTimeout(() => { h.style.display = "none"; }, 15000);
   }
+
+  // ---------- Replay ----------
+  const replayStrecke = L.layerGroup(), replaySpur = L.layerGroup();
+  let replay = null;   // { t0, t1, pos, tempo, laeuft, letzterFrame, gezeigt:Set, spur }
+  function replayStarten() {
+    const gut = punkte.filter(brauchbar);
+    if (gut.length < 2) return;
+    replayAktiv = true;
+    fotoZu(); $("buch").classList.remove("zeigen");
+    folgen = false; $("folgen").classList.remove("an");
+    streckenGruppe.clearLayers(); fotoGruppe.clearLayers(); meldungGruppe.clearLayers();
+    for (const id in fotoMarker) delete fotoMarker[id];
+    for (const id in meldungMarker) delete meldungMarker[id];
+    if (startMarker) { karte.removeLayer(startMarker); startMarker = null; }
+    replayStrecke.addTo(karte); replaySpur.addTo(karte);
+    streckeZeichnen(gut, replayStrecke, true);
+    replaySpur.clearLayers();
+    const spur = L.polyline([[gut[0].lat, gut[0].lng]], { color: "#ff7a33", weight: 6, opacity: .95 }).addTo(replaySpur);
+    replay = { gut, t0: zeit(gut[0]), t1: zeit(gut[gut.length - 1]), pos: 0, tempo: 2, laeuft: true, letzterFrame: performance.now(), gezeigt: new Set(), idx: 0, spur };
+    $("umgebung").hidden = true;
+    $("replay").classList.add("zeigen");
+    $("karte-wrap").classList.add("replay-an");
+    $("r-play").textContent = "⏸"; $("r-tempo").textContent = "2×";
+    karte.fitBounds(L.latLngBounds(gut.map((p) => [p.lat, p.lng])), { padding: [50, 50], maxZoom: 15 });
+    $("statustext").textContent = "▶️ Replay";
+    $("status").className = "pille live";
+    requestAnimationFrame(replayFrame);
+  }
+  // Dauer bei 1×: ca. 60 Sekunden für den ganzen Tag (Pausen werden verkürzt)
+  function replaySchritt(dtMs) {
+    const r = replay, dauer = 60000;
+    const gesamt = r.t1 - r.t0;
+    let zeitJetzt = r.t0 + r.pos * gesamt;
+    // Pausen überspringen: liegt der nächste Punkt weit entfernt in der Zeit, schneller durchlaufen
+    const naechster = r.gut[Math.min(r.idx + 1, r.gut.length - 1)];
+    const luecke = zeit(naechster) - zeitJetzt > 5 * 60000;
+    r.pos = Math.min(1, r.pos + (dtMs / dauer) * r.tempo * (luecke ? 8 : 1));
+    zeitJetzt = r.t0 + r.pos * gesamt;
+    while (r.idx < r.gut.length - 1 && zeit(r.gut[r.idx + 1]) <= zeitJetzt) {
+      r.idx++;
+      r.spur.addLatLng([r.gut[r.idx].lat, r.gut[r.idx].lng]);
+    }
+    return zeitJetzt;
+  }
+  function replayZeigen(zeitJetzt) {
+    const r = replay, a = r.gut[r.idx], b = r.gut[Math.min(r.idx + 1, r.gut.length - 1)];
+    const span = zeit(b) - zeit(a), f = span > 0 ? Math.min(1, (zeitJetzt - zeit(a)) / span) : 0;
+    const lat = a.lat + (b.lat - a.lat) * f, lng = a.lng + (b.lng - a.lng) * f;
+    if (!motoMarker) motorradSetzen(lat, lng, null, "live");
+    motoMarker.setLatLng([lat, lng]);
+    const div = motoMarker.getElement()?.querySelector(".moto");
+    if (div) {
+      div.classList.remove("alt", "ohne-richtung"); div.classList.add("live");
+      if (abstandKm(a, b) > 0.005) div.querySelector(".pfeil").style.transform = "rotate(" + peilung(a, b) + "deg)";
+    }
+    if (!karte.getBounds().pad(-0.15).contains([lat, lng])) karte.panTo([lat, lng], { animate: true });
+    tachoSetzen(span > 0 && span < 5 * 60000 ? (a.kmh ?? 0) : 0);
+    $("r-zeit").textContent = uhr(zeitJetzt) + " · " + Math.round(a.kmh ?? 0) + " km/h";
+    $("r-pos").value = Math.round(r.pos * 1000);
+    // Fotos und Meldungen auftauchen lassen
+    for (const fo of fotos) {
+      if (r.gezeigt.has("f" + fo.id) || fo.lat == null || zeit(fo) > zeitJetzt) continue;
+      r.gezeigt.add("f" + fo.id);
+      const icon = L.divIcon({ className: "", html: '<div class="foto-pin"><img alt="" src="' + fotoUrl(fo.id, true) + '"></div>', iconSize: [46, 46], iconAnchor: [23, 23] });
+      L.marker([fo.lat, fo.lng], { icon, zIndexOffset: 500 }).addTo(replaySpur).on("click", () => fotoZeigen(fo.id));
+      if (r.laeuft) hinweis("📷 " + (fo.titel || "Foto um " + uhr(fo.t)), () => fotoZeigen(fo.id));
+    }
+    for (const k of kommentare) {
+      if (!k.art || k.lat == null || r.gezeigt.has("k" + k.id) || new Date(k.t).getTime() > zeitJetzt) continue;
+      r.gezeigt.add("k" + k.id);
+      const icon = L.divIcon({ className: "", html: '<div class="meldung-pin">' + (Array.from(k.text)[0] || "📍") + "</div>", iconSize: [34, 34], iconAnchor: [4, 34] });
+      L.marker([k.lat, k.lng], { icon, zIndexOffset: 400 }).addTo(replaySpur).bindTooltip(k.text);
+      if (r.laeuft) hinweis("🏍️ " + k.text);
+    }
+  }
+  function replayFrame(jetzt) {
+    if (!replay) return;
+    const dt = Math.min(100, jetzt - replay.letzterFrame);
+    replay.letzterFrame = jetzt;
+    if (replay.laeuft) {
+      const z = replaySchritt(dt);
+      replayZeigen(z);
+      if (replay.pos >= 1) { replay.laeuft = false; $("r-play").textContent = "↻"; hinweis("🏁 Ende der Tour · " + kmText(auswerten(replay.gut).km)); }
+    }
+    requestAnimationFrame(replayFrame);
+  }
+  function replaySpringen(pos) {
+    const r = replay;
+    r.pos = pos; r.idx = 0; r.gezeigt.clear();
+    replaySpur.clearLayers();
+    r.spur = L.polyline([[r.gut[0].lat, r.gut[0].lng]], { color: "#ff7a33", weight: 6, opacity: .95 }).addTo(replaySpur);
+    const z = r.t0 + pos * (r.t1 - r.t0);
+    while (r.idx < r.gut.length - 1 && zeit(r.gut[r.idx + 1]) <= z) { r.idx++; r.spur.addLatLng([r.gut[r.idx].lat, r.gut[r.idx].lng]); }
+    const lief = r.laeuft; r.laeuft = false; replayZeigen(z); r.laeuft = lief;
+  }
+  function replayBeenden() {
+    if (!replayAktiv) return;
+    replay = null; replayAktiv = false;
+    replayStrecke.clearLayers(); replaySpur.clearLayers();
+    karte.removeLayer(replayStrecke); karte.removeLayer(replaySpur);
+    $("replay").classList.remove("zeigen");
+    $("karte-wrap").classList.remove("replay-an");
+    if (motoMarker) { karte.removeLayer(motoMarker); motoMarker = null; }
+    ersteAnsicht = true;
+    anzeigen();
+  }
+  $("replay-knopf").onclick = replayStarten;
+  $("r-ende").onclick = replayBeenden;
+  $("r-play").onclick = () => {
+    if (!replay) return;
+    if (replay.pos >= 1) { replaySpringen(0); replay.laeuft = true; $("r-play").textContent = "⏸"; return; }
+    replay.laeuft = !replay.laeuft;
+    $("r-play").textContent = replay.laeuft ? "⏸" : "▶";
+  };
+  $("r-tempo").onclick = () => {
+    if (!replay) return;
+    replay.tempo = { 1: 2, 2: 4, 4: 8, 8: 1 }[replay.tempo];
+    $("r-tempo").textContent = replay.tempo + "×";
+  };
+  $("r-pos").oninput = (e) => { if (replay) replaySpringen(Number(e.target.value) / 1000); };
 
   // ---------- Daten laden ----------
   async function laden() {
@@ -767,16 +1229,18 @@
     const url = API + "?ansicht=" + encodeURIComponent(token) + (tag ? "&datum=" + tag : "")
       + (cursor ? "&seit=" + encodeURIComponent(cursor) : "")
       + (fotoCursor ? "&fotos_seit=" + fotoCursor : "")
-      + (kCursor ? "&kommentare_seit=" + kCursor : "");
+      + (kCursor ? "&kommentare_seit=" + kCursor : "")
+      + "&wer=" + wer;
     try {
       const r = await fetch(url, { cache: "no-store" });
-      if (r.status === 403) { meldung("Link ungültig", "Dieser Link funktioniert nicht (mehr)."); return; }
+      if (r.status === 403) { meldungVoll("Link ungültig", "Dieser Link funktioniert nicht (mehr)."); return; }
       if (!r.ok) throw new Error("HTTP " + r.status);
       const d = await r.json();
-      if (angefragt !== tag) return;   // inzwischen anderer Tag gewählt
+      if (angefragt !== tag) return;
       const altHeute = heute;
       heute = d.heute;
-      if (altHeute && altHeute !== heute) {   // Mitternacht: neuer Tag beginnt
+      titelSetzen(d.titel);
+      if (altHeute && altHeute !== heute) {   // Mitternacht
         tageLaden();
         if (!tag) { neuLaden(); return; }
       }
@@ -788,32 +1252,36 @@
       }
       if (d.cursor) cursor = d.cursor;
       if (d.fotos && d.fotos.length) {
-        const bekannteFotos = new Set(fotos.map((f) => f.id));
-        const neue = d.fotos.filter((f) => !bekannteFotos.has(f.id));
+        const bekannte = new Set(fotos.map((f) => f.id));
+        const neue = d.fotos.filter((f) => !bekannte.has(f.id));
         fotos = fotos.concat(neue).sort((a, b) => zeit(a) - zeit(b));
-        if (!ersterAbruf && neue.length) neuesFotoHinweis(neue[neue.length - 1].id);
+        if (!ersterAbruf && neue.length && !replayAktiv) hinweis("📷 Neues Foto", () => fotoZeigen(neue[neue.length - 1].id));
       }
       if (d.fotos_cursor) fotoCursor = d.fotos_cursor;
+      let kNeu = false;
       if (d.kommentare && d.kommentare.length) {
         const bekannt = new Set(kommentare.map((k) => k.id));
         const neu = d.kommentare.filter((k) => !bekannt.has(k.id));
         kommentare = kommentare.concat(neu).sort((a, b) => a.id - b.id);
         const fremd = neu.filter((k) => !eigeneKommentare.has(k.id));
-        if (!ersterAbruf && fremd.length) {
+        if (!ersterAbruf && fremd.length && !replayAktiv) {
           const k = fremd[fremd.length - 1];
           const kurz = k.text.length > 40 ? k.text.slice(0, 40) + "…" : k.text;
-          hinweis("💬 " + (k.fahrer ? "🏍️ " : "") + k.name + ": " + kurz, () => $("kommentare").scrollIntoView({ behavior: "smooth" }));
+          if (k.art) hinweis("🏍️ " + k.text, () => k.lat != null && karte.setView([k.lat, k.lng], 15));
+          else hinweis("💬 " + (k.fahrer ? "🏍️ " : "") + k.name + ": " + kurz, () => $("kommentare").scrollIntoView({ behavior: "smooth" }));
         }
-        kommentareZeichnen();
+        kNeu = neu.length > 0;
       }
       if (d.kommentare_cursor) kCursor = d.kommentare_cursor;
+      const rNeu = reaktionenSetzen(d.reaktionen);
+      if (kNeu || rNeu || ersterAbruf) reaktionenNeuZeichnen();
       ersterAbruf = false;
       fehlerZaehler = 0;
       anzeigen();
     } catch (e) {
       fehlerZaehler++;
       if (fehlerZaehler >= 3) {
-        $("status").className = "weg";
+        $("status").className = "pille weg";
         $("statustext").innerHTML = "Keine Verbindung <small>· prüfe dein Internet</small>";
       }
     }
@@ -824,16 +1292,16 @@
     $("folgen").classList.toggle("an", folgen);
     if (folgen && punkte.length) karte.setView([punkte.at(-1).lat, punkte.at(-1).lng], Math.max(karte.getZoom(), 13));
   };
-  $("ganze").onclick = () => {
-    folgen = false; $("folgen").classList.remove("an"); ganzeStrecke();
-  };
+  $("ganze").onclick = () => { folgen = false; $("folgen").classList.remove("an"); ganzeStrecke(); };
   karte.on("dragstart", () => { folgen = false; $("folgen").classList.remove("an"); });
 
+  grossModus(false);
+  tachoSetzen(null);
   laden();
   tageLaden();
   setInterval(laden, INTERVALL_MS);
   setInterval(tageLaden, 5 * 60000);
-  setInterval(() => { if (punkte.length) anzeigen(); }, 30000);  // "vor X Min." aktuell halten
+  setInterval(() => { if (punkte.length && !replayAktiv) anzeigen(); }, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) laden(); });
 })();
 </script>
