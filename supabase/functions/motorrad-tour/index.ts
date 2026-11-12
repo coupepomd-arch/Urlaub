@@ -121,18 +121,26 @@ async function empfangen(req: Request, url: URL) {
 
   if (punkte.length === 0) return json({ fehler: "keine Position" }, 400);
 
+  const token = punkte.find((p) => p.token)?.token;
+  if (!token) return json({ fehler: "unbekanntes Gerät" }, 403);
+  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${token}`;
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+
+  // Doppelt gesendete Punkte (gleiche Aufnahmezeit) werden übersprungen,
+  // trotzdem mit "ok" beantwortet, damit die App nicht endlos neu sendet.
   let gespeichert = 0;
   for (const p of punkte) {
-    if (!p.token) continue;
+    if (p.token && p.token !== token) continue;
     const r = await sql`
       insert into privat.tour_positionen
         (geraet_id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt)
-      select id, ${p.zeit}, ${p.lat}, ${p.lng}, ${p.kmh}, ${p.richtung}, ${p.hoehe}, ${p.genauigkeit}, ${p.akku}, ${p.laedt}
-      from privat.tour_geraete where sende_token = ${p.token}
+      select ${geraet.id}, ${p.zeit}, ${p.lat}, ${p.lng}, ${p.kmh}, ${p.richtung}, ${p.hoehe}, ${p.genauigkeit}, ${p.akku}, ${p.laedt}
+      where not exists (
+        select 1 from privat.tour_positionen
+        where geraet_id = ${geraet.id} and aufgenommen_am = ${p.zeit})
       returning id`;
     gespeichert += r.length;
   }
-  if (gespeichert === 0) return json({ fehler: "unbekanntes Gerät" }, 403);
   return json({ ok: true, gespeichert });
 }
 

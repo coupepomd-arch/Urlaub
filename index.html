@@ -130,7 +130,8 @@
   const API = "https://qdqtvaoqhhecoeqvxsqq.supabase.co/functions/v1/motorrad-tour";
   const INTERVALL_MS = 10000;
   const LIVE_BIS_MIN = 2;      // jünger als 2 Min = live
-  const SIGNAL_WEG_MIN = 10;   // älter als 10 Min = "kein Signal"
+  const SIGNAL_WEG_MIN = 30;   // älter als 30 Min = rot
+  const NEUE_TOUR_STUNDEN = 2; // Lücke von mehr als 2 h = neue Tour (alte wird ausgeblendet)
 
   const $ = (id) => document.getElementById(id);
   const token = (location.hash.slice(1) || new URLSearchParams(location.search).get("t") || "").trim();
@@ -156,7 +157,8 @@
 
   const streckenGruppe = L.layerGroup().addTo(karte);
   let motoMarker = null, startMarker = null;
-  let punkte = [];
+  let alle = [];     // alle geladenen Punkte
+  let punkte = [];   // nur die aktuelle Tour
   let folgen = true;
   let ersteAnsicht = true;
   let fehlerZaehler = 0;
@@ -273,18 +275,18 @@
     const stand = standSeit();
 
     const st = $("status"), tx = $("statustext");
+    // Hinweis: Traccar sendet im Stillstand nichts, um Akku zu sparen.
+    // Keine neuen Punkte heißt daher meist "Pause", manchmal "Funkloch".
     if (alterMs > SIGNAL_WEG_MIN * 60000) {
       st.className = "weg";
-      tx.innerHTML = "Kein Signal <small>· zuletzt " + vorText(alterMs) + " (" + uhr(letzter.t) + ")</small>";
-    } else if (stand) {
-      st.className = "pause";
-      tx.innerHTML = "Pause <small>· seit " + dauerText(zeit(letzter) - stand + alterMs) + "</small>";
-    } else if (live) {
+      tx.innerHTML = "Länger keine Meldung <small>· letzte " + uhr(letzter.t) + " Uhr</small>";
+    } else if (live && !stand) {
       st.className = "live";
       tx.innerHTML = "Live unterwegs <small>· " + vorText(alterMs) + "</small>";
     } else {
+      const seit = stand ? Date.now() - stand : alterMs;
       st.className = "pause";
-      tx.innerHTML = "Verbindung schwach <small>· " + vorText(alterMs) + "</small>";
+      tx.innerHTML = "Pause / Stillstand <small>· seit " + dauerText(Math.max(seit, 60000)) + "</small>";
     }
 
     const kmh = live && letzter.kmh != null && !stand ? Math.round(letzter.kmh) : null;
@@ -321,7 +323,16 @@
       if (!r.ok) throw new Error("HTTP " + r.status);
       const d = await r.json();
       if (d.positionen.length) {
-        punkte = punkte.concat(d.positionen).sort((a, b) => zeit(a) - zeit(b));
+        const bekannt = new Set(alle.map((p) => p.t));
+        for (const p of d.positionen) if (!bekannt.has(p.t)) { alle.push(p); bekannt.add(p.t); }
+        alle.sort((a, b) => zeit(a) - zeit(b));
+        // Aktuelle Tour = alles nach der letzten großen Lücke
+        let start = 0;
+        for (let i = 1; i < alle.length; i++) {
+          if (zeit(alle[i]) - zeit(alle[i - 1]) > NEUE_TOUR_STUNDEN * 3600000) start = i;
+        }
+        if (punkte.length && start > 0 && punkte[0].t !== alle[start].t) ersteAnsicht = true;
+        punkte = alle.slice(start);
       }
       if (d.cursor) cursor = d.cursor;
       fehlerZaehler = 0;
