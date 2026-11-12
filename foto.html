@@ -155,6 +155,66 @@
   setInterval(kommentareLaden, 20000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) kommentareLaden(); });
 
+  // ---------- Aufnahmezeit und GPS aus den Fotodaten (EXIF) lesen ----------
+  // Liest nur den Anfang der Datei. Das verkleinerte Bild enthält danach keine EXIF-Daten mehr.
+  async function exifLesen(datei) {
+    try {
+      const v = new DataView(await datei.slice(0, 256 * 1024).arrayBuffer());
+      if (v.getUint16(0) !== 0xFFD8) return null;              // kein JPEG
+      let o = 2;
+      while (o + 10 < v.byteLength) {
+        const marker = v.getUint16(o), laenge = v.getUint16(o + 2);
+        if ((marker & 0xFF00) !== 0xFF00) return null;
+        if (marker === 0xFFE1 && v.getUint32(o + 4) === 0x45786966) return tiffLesen(v, o + 10);   // "Exif"
+        if (marker === 0xFFDA) return null;                    // Bilddaten beginnen
+        o += 2 + laenge;
+      }
+    } catch (e) {}
+    return null;
+  }
+  function tiffLesen(v, t) {
+    const le = v.getUint16(t) === 0x4949;
+    const u16 = (p) => v.getUint16(p, le), u32 = (p) => v.getUint32(p, le);
+    const ifd = (p) => { const e = {}, n = u16(p); for (let i = 0; i < n; i++) { const q = p + 2 + i * 12; e[u16(q)] = q; } return e; };
+    const text = (q) => {
+      const n = u32(q + 4), start = n > 4 ? t + u32(q + 8) : q + 8;
+      let s = ""; for (let i = 0; i < n; i++) { const c = v.getUint8(start + i); if (!c) break; s += String.fromCharCode(c); }
+      return s.trim();
+    };
+    const grad = (q) => {   // drei Brüche: Grad, Minuten, Sekunden
+      const s = t + u32(q + 8), r = (i) => { const nenner = u32(s + i * 8 + 4); return nenner ? u32(s + i * 8) / nenner : 0; };
+      return r(0) + r(1) / 60 + r(2) / 3600;
+    };
+    const aus = {};
+    const ifd0 = ifd(t + u32(t + 4));
+    if (ifd0[0x8769]) {
+      const ex = ifd(t + u32(ifd0[0x8769] + 8));
+      if (ex[0x9003]) aus.zeit = text(ex[0x9003]);          // DateTimeOriginal
+      if (ex[0x9011]) aus.offset = text(ex[0x9011]);        // OffsetTimeOriginal
+    }
+    if (!aus.zeit && ifd0[0x0132]) aus.zeit = text(ifd0[0x0132]);   // DateTime
+    if (ifd0[0x8825]) {
+      const g = ifd(t + u32(ifd0[0x8825] + 8));
+      if (g[2] && g[4]) {
+        let lat = grad(g[2]), lng = grad(g[4]);
+        if (g[1] && text(g[1]).toUpperCase() === "S") lat = -lat;
+        if (g[3] && text(g[3]).toUpperCase() === "W") lng = -lng;
+        if (Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && (lat || lng)) { aus.lat = lat; aus.lng = lng; }
+      }
+    }
+    return aus;
+  }
+  // "2026:11:13 14:05:09" (+ "+01:00") -> Millisekunden; ohne Zeitzone gilt die des Handys
+  function exifZeit(exif) {
+    const m = /^(\d{4}):(\d{2}):(\d{2})[ T](\d{2}):(\d{2}):(\d{2})/.exec(exif?.zeit || "");
+    if (!m) return null;
+    let ms;
+    if (/^[+-]\d{2}:\d{2}$/.test(exif.offset || "")) ms = Date.parse(m[1] + "-" + m[2] + "-" + m[3] + "T" + m[4] + ":" + m[5] + ":" + m[6] + exif.offset);
+    else ms = new Date(+m[1], m[2] - 1, +m[3], +m[4], +m[5], +m[6]).getTime();
+    return plausibel(ms) ? ms : null;
+  }
+  const plausibel = (ms) => Number.isFinite(ms) && Date.now() - ms < 60 * 864e5 && ms - Date.now() < 864e5;
+
   async function verkleinern(datei, max, qualitaet) {
     let quelle;
     try { quelle = await createImageBitmap(datei, { imageOrientation: "from-image" }); }
@@ -192,9 +252,12 @@
       li.querySelector("img").src = URL.createObjectURL(vorschau);
     } catch (e) { status("Bild konnte nicht gelesen werden", "fehler"); return; }
 
-    // Aufnahmezeit: Änderungsdatum der Datei, falls plausibel (letzte 7 Tage), sonst jetzt
+    // Aufnahmezeit: aus den Fotodaten, sonst Änderungsdatum der Datei, sonst jetzt
+    const exif = await exifLesen(datei);
+    const exifMs = exifZeit(exif);
     const lm = datei.lastModified;
-    const zeit = lm && Math.abs(Date.now() - lm) < 7 * 864e5 ? lm : Date.now();
+    const zeit = exifMs ?? (plausibel(lm) ? lm : Date.now());
+    const zeitQuelle = exifMs ? "Aufnahmezeit aus Foto" : "Zeit geschätzt";
 
     for (let versuch = 1; versuch <= 6; versuch++) {
       status(versuch === 1 ? "wird gesendet …" : "neuer Versuch (" + versuch + "/6) …");
@@ -204,11 +267,15 @@
         fd.append("vorschau", vorschau, "vorschau.jpg");
         fd.append("zeit", String(zeit));
         if (titel) fd.append("titel", titel);
+        if (exif && exif.lat != null) { fd.append("gps_lat", exif.lat); fd.append("gps_lng", exif.lng); }
         if (standort) { fd.append("lat", standort.lat); fd.append("lng", standort.lng); }
         const r = await fetch(API + "?foto=1&id=" + encodeURIComponent(token), { method: "POST", body: fd });
         if (r.status === 403) { status("Schlüssel ungültig", "fehler"); return; }
         if (!r.ok) throw new Error("HTTP " + r.status);
-        status("✓ auf der Karte", "ok");
+        const d = await r.json().catch(() => ({}));
+        const ort = { foto: "Ort aus Foto", strecke: "Ort von der Strecke", handy: "Ort vom Handy", letzter: "Ort: letzte Position" }[d.ort] || "ohne Ort";
+        const uhrzeit = new Date(zeit).toLocaleString("de-DE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+        status("✓ auf der Karte · " + uhrzeit + " · " + zeitQuelle + " · " + ort, "ok");
         return;
       } catch (e) {
         await new Promise((ok) => setTimeout(ok, Math.min(30000, 2000 * 2 ** versuch)));

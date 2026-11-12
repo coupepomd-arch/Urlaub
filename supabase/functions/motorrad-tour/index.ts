@@ -4,7 +4,7 @@
 //          POST      .../motorrad-tour  JSON {device_id, location:{coords:{...}, battery:{...}}}
 // Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&datum=JJJJ-MM-TT][&seit=<Nr>][&fotos_seit=<Nr>][&kommentare_seit=<Nr>]
 // Reisebuch: GET     .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&tage=1
-// Foto hochladen: POST .../motorrad-tour?id=<SENDE_TOKEN>&foto=1  (multipart: bild, vorschau, zeit, titel, lat, lng)
+// Foto hochladen: POST .../motorrad-tour?id=<SENDE_TOKEN>&foto=1  (multipart: bild, vorschau, zeit, titel, gps_lat, gps_lng, lat, lng)
 // Foto ansehen:   GET  .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&foto=<Nr>[&klein=1]
 // Kommentar:      POST .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&kommentar=1  JSON {name, text, foto_id?}
 //                 POST .../motorrad-tour?id=<SENDE_TOKEN>&kommentar=1         (Antwort vom Fahrer)
@@ -47,16 +47,21 @@ const zahl = (v: unknown): number | null => {
 
 const positiv = (n: number | null) => (n === null || n < 0 ? null : n);
 
-function zeitAus(v: unknown): Date {
+// maxTageAlt: wie weit eine Zeit in der Vergangenheit liegen darf (Fotos dürfen später nachgereicht werden)
+function zeitAus(v: unknown, maxTageAlt = 7): Date {
   if (v === null || v === undefined || v === "") return new Date();
   const n = Number(v);
   let d: Date;
   if (Number.isFinite(n)) d = new Date(n > 1e12 ? n : n * 1000);
   else d = new Date(String(v));
-  // Ungültige oder stark abweichende Zeiten durch Serverzeit ersetzen
-  if (isNaN(d.getTime()) || Math.abs(d.getTime() - Date.now()) > 7 * 24 * 3600 * 1000) return new Date();
+  // Ungültige, zu alte oder zukünftige Zeiten durch Serverzeit ersetzen
+  const diff = Date.now() - (d.getTime() || 0);
+  if (isNaN(d.getTime()) || diff > maxTageAlt * 24 * 3600 * 1000 || diff < -24 * 3600 * 1000) return new Date();
   return d;
 }
+
+const koordinate = (lat: number | null, lng: number | null) =>
+  lat !== null && lng !== null && Math.abs(lat) <= 90 && Math.abs(lng) <= 180 && !(lat === 0 && lng === 0);
 
 const wahr = (v: unknown): boolean | null =>
   v === null || v === undefined || v === "" ? null : ["1", "true", "yes"].includes(String(v).toLowerCase());
@@ -349,27 +354,28 @@ async function fotoHochladen(req: Request, url: URL) {
   if (bild.size > MAX_BILD || vorschau.size > MAX_BILD) return json({ fehler: "Bild zu groß" }, 413);
   if (!bild.type.startsWith("image/") || !vorschau.type.startsWith("image/")) return json({ fehler: "kein Bild" }, 415);
 
-  const zeit = zeitAus(form.get("zeit"));
+  const zeit = zeitAus(form.get("zeit"), 60);
   const titel = String(form.get("titel") ?? "").trim().slice(0, 300) || null;
 
-  // Ort: Streckenpunkt, der zeitlich am nächsten an der Aufnahme liegt (max. 15 Min.),
-  // sonst der Standort des Handys beim Hochladen, sonst der letzte bekannte Punkt.
-  let lat: number | null = null, lng: number | null = null;
-  const [nah] = await sql`
+  // Ort: GPS-Daten aus dem Foto, sonst der Streckenpunkt, der zeitlich am nächsten an der
+  // Aufnahme liegt (max. 15 Min.), sonst der Standort des Handys beim Hochladen, sonst der letzte Punkt.
+  let lat: number | null = null, lng: number | null = null, ortQuelle = "keiner";
+  const gl = zahl(form.get("gps_lat")), gg = zahl(form.get("gps_lng"));
+  const [nah] = koordinate(gl, gg) ? [{ lat: gl, lng: gg }] : await sql`
     select lat, lng from privat.tour_positionen
     where geraet_id = ${geraet.id}
       and aufgenommen_am between ${new Date(zeit.getTime() - 15 * 60000)} and ${new Date(zeit.getTime() + 15 * 60000)}
     order by abs(extract(epoch from (aufgenommen_am - ${zeit}::timestamptz)))
     limit 1`;
-  if (nah) { lat = nah.lat; lng = nah.lng; }
+  if (nah) { lat = nah.lat; lng = nah.lng; ortQuelle = koordinate(gl, gg) ? "foto" : "strecke"; }
   else {
     const fl = zahl(form.get("lat")), fg = zahl(form.get("lng"));
-    if (fl !== null && fg !== null) { lat = fl; lng = fg; }
+    if (koordinate(fl, fg)) { lat = fl; lng = fg; ortQuelle = "handy"; }
     else {
       const [letzter] = await sql`
         select lat, lng from privat.tour_positionen where geraet_id = ${geraet.id}
         order by aufgenommen_am desc limit 1`;
-      if (letzter) { lat = letzter.lat; lng = letzter.lng; }
+      if (letzter) { lat = letzter.lat; lng = letzter.lng; ortQuelle = "letzter"; }
     }
   }
 
@@ -378,7 +384,7 @@ async function fotoHochladen(req: Request, url: URL) {
     values (${geraet.id}, ${zeit}, ${lat}, ${lng}, ${titel},
             ${new Uint8Array(await bild.arrayBuffer())}, ${new Uint8Array(await vorschau.arrayBuffer())})
     returning id`;
-  return json({ ok: true, id: Number(neu.id), lat, lng });
+  return json({ ok: true, id: Number(neu.id), lat, lng, ort: ortQuelle, zeit });
 }
 
 async function fotoLiefern(url: URL) {

@@ -46,8 +46,10 @@ mit Kilometern, Fahrzeit, Fotos und Kommentaren) ansehen. Das Reisebuch beginnt 
 
 `https://<github-pages-adresse>/foto.html#<sendeschlüssel>` auf dem Handy öffnen (am besten zum
 Startbildschirm hinzufügen). Fotos werden vor dem Hochladen verkleinert (max. 1600 px) und in
-`privat.tour_fotos` gespeichert. Der Ort wird über die Aufnahmezeit dem nächsten Streckenpunkt
-(± 15 Min.) zugeordnet, sonst dem Standort des Handys beim Hochladen.
+`privat.tour_fotos` gespeichert. Aufnahmezeit und GPS werden aus den EXIF-Daten des Fotos gelesen
+(sonst Dateidatum). Ort: GPS aus dem Foto, sonst der Streckenpunkt zur Aufnahmezeit (± 15 Min.), sonst
+der Standort des Handys beim Hochladen. Fotos dürfen bis zu 60 Tage alt sein. Die hochgeladenen,
+verkleinerten Bilder enthalten keine EXIF-Daten mehr.
 
 ## Kommentare
 
