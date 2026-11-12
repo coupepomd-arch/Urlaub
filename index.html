@@ -42,6 +42,10 @@
   body { display: flex; flex-direction: column; }
   #karte { flex: 1; min-height: 45vh; }
   .leaflet-container { background: var(--bg); }
+  @media (prefers-color-scheme: dark) {
+    .kacheln-strasse { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
+  }
+  .leaflet-top.leaflet-right { top: max(56px, calc(env(safe-area-inset-top) + 46px)); }
 
   #kopf {
     position: absolute; top: max(10px, env(safe-area-inset-top)); left: 10px; right: 10px; z-index: 500;
@@ -143,15 +147,23 @@
   }
   if (!token) { meldung("Kein Zugang", "Bitte den vollständigen Link verwenden, den du bekommen hast."); return; }
 
-  const dunkel = matchMedia("(prefers-color-scheme: dark)").matches;
   const karte = L.map("karte", { zoomControl: false, attributionControl: true }).setView([51.1, 10.4], 6);
   L.control.zoom({ position: "bottomright" }).addTo(karte);
-  // Kartenbilder von CARTO (OpenStreetMap-Daten). Der Schlüssel hinter "#" wird nie mitgeschickt.
-  L.tileLayer("https://{s}.basemaps.cartocdn.com/" + (dunkel ? "dark_all" : "rastertiles/voyager") + "/{z}/{x}/{y}{r}.png", {
-    maxZoom: 20,
-    subdomains: "abcd",
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
-  }).addTo(karte);
+  // Kartenbilder ohne API-Schlüssel. Der Schlüssel hinter "#" wird nie mitgeschickt.
+  const osmText = '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>';
+  const ebenen = {
+    "Straße": L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, className: "kacheln-strasse", attribution: osmText }),
+    "Gelände": L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+      maxZoom: 17, attribution: osmText + ', <a href="https://opentopomap.org">OpenTopoMap</a> (CC-BY-SA)' }),
+    "Satellit": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
+      maxZoom: 19, attribution: "Bilder &copy; Esri" }),
+  };
+  let ebeneName = "Straße";
+  try { const g = localStorage.getItem("karte"); if (g && ebenen[g]) ebeneName = g; } catch (e) {}
+  ebenen[ebeneName].addTo(karte);
+  L.control.layers(ebenen, null, { position: "topright" }).addTo(karte);
+  karte.on("baselayerchange", (e) => { try { localStorage.setItem("karte", e.name); } catch (err) {} });
 
   const streckenGruppe = L.layerGroup().addTo(karte);
   let motoMarker = null, startMarker = null;
