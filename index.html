@@ -1224,7 +1224,15 @@
   $("r-pos").oninput = (e) => { if (replay) replaySpringen(Number(e.target.value) / 1000); };
 
   // ---------- Daten laden ----------
+  let letzterAbruf = 0;
+  // Regelmäßiger Abruf nur, wenn die Seite sichtbar ist; vergangene Tage seltener (schont das Supabase-Kontingent)
+  function regelmaessigLaden() {
+    if (document.hidden) return;
+    if (!istHeute() && Date.now() - letzterAbruf < 60000) return;
+    laden();
+  }
   async function laden() {
+    letzterAbruf = Date.now();
     const angefragt = tag;
     const url = API + "?ansicht=" + encodeURIComponent(token) + (tag ? "&datum=" + tag : "")
       + (cursor ? "&seit=" + encodeURIComponent(cursor) : "")
@@ -1299,8 +1307,8 @@
   tachoSetzen(null);
   laden();
   tageLaden();
-  setInterval(laden, INTERVALL_MS);
-  setInterval(tageLaden, 5 * 60000);
+  setInterval(regelmaessigLaden, INTERVALL_MS);
+  setInterval(() => { if (!document.hidden) tageLaden(); }, 5 * 60000);
   setInterval(() => { if (punkte.length && !replayAktiv) anzeigen(); }, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) laden(); });
 })();

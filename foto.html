@@ -227,7 +227,7 @@
 
   kommentareZeichnen();
   kommentareLaden();
-  setInterval(kommentareLaden, 20000);
+  setInterval(() => { if (!document.hidden) kommentareLaden(); }, 30000);
   document.addEventListener("visibilitychange", () => { if (!document.hidden) kommentareLaden(); });
 
   // ---------- Aufnahmezeit und GPS aus den Fotodaten (EXIF) lesen ----------
