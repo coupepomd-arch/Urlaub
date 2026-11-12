@@ -2,7 +2,8 @@
 //
 // Senden:  GET/POST  .../motorrad-tour?id=<SENDE_TOKEN>&lat=..&lon=..   (OsmAnd-Format)
 //          POST      .../motorrad-tour  JSON {device_id, location:{coords:{...}, battery:{...}}}
-// Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&seit=<Nr>][&fotos_seit=<Nr>]
+// Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&datum=JJJJ-MM-TT][&seit=<Nr>][&fotos_seit=<Nr>][&kommentare_seit=<Nr>]
+// Reisebuch: GET     .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&tage=1
 // Foto hochladen: POST .../motorrad-tour?id=<SENDE_TOKEN>&foto=1  (multipart: bild, vorschau, zeit, titel, lat, lng)
 // Foto ansehen:   GET  .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&foto=<Nr>[&klein=1]
 // Kommentar:      POST .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&kommentar=1  JSON {name, text, foto_id?}
@@ -149,35 +150,47 @@ async function empfangen(req: Request, url: URL) {
   return json({ ok: true, gespeichert });
 }
 
-async function ansehen(url: URL) {
-  const token = url.searchParams.get("ansicht")!;
-  const [geraet] = await sql`select id, name from privat.tour_geraete where ansicht_token = ${token}`;
-  if (!geraet) return json({ fehler: "Link ungültig" }, 403);
+const datumOk = (v: unknown) => typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(Date.parse(v)) ? v : null;
 
-  // Zeitraum: die letzten 18 Stunden. "seit" ist die laufende Nummer des zuletzt
-  // abgeholten Punkts, damit nach einem Funkloch nachgereichte Punkte auch ankommen.
-  const ab = new Date(Date.now() - 18 * 3600 * 1000);
-  const seit = Math.max(0, Math.floor(Number(url.searchParams.get("seit")) || 0));
+async function geraetFuerAnsicht(token: string | null) {
+  const [g] = await sql`
+    select id, name, zeitzone, reise_start::text as reise_start, (now() at time zone zeitzone)::date::text as heute
+    from privat.tour_geraete where ansicht_token = ${token}`;
+  return g;
+}
+
+async function ansehen(url: URL) {
+  const g = await geraetFuerAnsicht(url.searchParams.get("ansicht"));
+  if (!g) return json({ fehler: "Link ungültig" }, 403);
+  if (url.searchParams.has("tage")) return await tageListe(g);
+
+  // Ein Kalendertag in der Zeitzone der Reise. Ohne Angabe: heute.
+  const datum = datumOk(url.searchParams.get("datum")) ?? g.heute;
+  const [{ von, bis }] = await sql`
+    select (${datum}::date::timestamp at time zone ${g.zeitzone}) as von,
+           ((${datum}::date + 1)::timestamp at time zone ${g.zeitzone}) as bis`;
+  const nummer = (name: string) => Math.max(0, Math.floor(Number(url.searchParams.get(name)) || 0));
+  const seit = nummer("seit"), fotosSeit = nummer("fotos_seit"), kSeit = nummer("kommentare_seit");
 
   const rows = await sql`
     select id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt
     from privat.tour_positionen
-    where geraet_id = ${geraet.id} and aufgenommen_am > ${ab} and id > ${seit}
+    where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis} and id > ${seit}
     order by id
-    limit 20000`;
+    limit 50000`;
 
-  const fotosSeit = Math.max(0, Math.floor(Number(url.searchParams.get("fotos_seit")) || 0));
   const fotos = await sql`
     select id, aufgenommen_am, lat, lng, titel
     from privat.tour_fotos
-    where geraet_id = ${geraet.id} and aufgenommen_am > ${ab} and id > ${fotosSeit}
+    where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis} and id > ${fotosSeit}
     order by id`;
 
-  const kSeit = Math.max(0, Math.floor(Number(url.searchParams.get("kommentare_seit")) || 0));
-  const kommentare = await kommentareLaden(geraet.id, kSeit);
+  const kommentare = await kommentareLaden(g.id, kSeit, datum);
 
   return json({
-    name: geraet.name,
+    name: g.name,
+    datum,
+    heute: g.heute,
     kommentare_cursor: kommentare.length ? kommentare[kommentare.length - 1].id : kSeit,
     kommentare,
     fotos_cursor: fotos.length ? Number(fotos[fotos.length - 1].id) : fotosSeit,
@@ -197,26 +210,84 @@ async function ansehen(url: URL) {
   });
 }
 
-async function kommentareLaden(geraetId: number, seit: number) {
-  const ab = new Date(Date.now() - 18 * 3600 * 1000);
+// Reisebuch: eine Zeile pro Tag mit Strecke, Fahrzeit, Höchsttempo, Fotos und Kommentaren
+async function tageListe(g: { id: number; zeitzone: string; reise_start: string | null; heute: string }) {
+  const ab = g.reise_start ?? "1970-01-01";
   const rows = await sql`
-    select k.id, k.erstellt_am, k.name, k.text, k.foto_id, k.vom_fahrer, f.aufgenommen_am as foto_t
+    with p as (
+      select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, aufgenommen_am, lat, lng, geschwindigkeit_kmh,
+             lag(lat) over w as plat, lag(lng) over w as plng, lag(aufgenommen_am) over w as pt
+      from privat.tour_positionen
+      where geraet_id = ${g.id} and (genauigkeit_m is null or genauigkeit_m <= 60)
+        and aufgenommen_am >= (${ab}::date::timestamp at time zone ${g.zeitzone})
+      window w as (partition by (aufgenommen_am at time zone ${g.zeitzone})::date order by aufgenommen_am)
+    ),
+    d as (
+      select *, extract(epoch from aufgenommen_am - pt) as dt,
+             2 * 6371 * asin(sqrt(power(sin(radians(lat - plat) / 2), 2)
+               + cos(radians(plat)) * cos(radians(lat)) * power(sin(radians(lng - plng) / 2), 2))) as km
+      from p
+    ),
+    strecke as (
+      select tag, min(aufgenommen_am) as start, max(aufgenommen_am) as ende,
+        coalesce(sum(km) filter (where km > 0.005 and dt > 0 and km / (dt / 3600) < 300), 0) as km,
+        coalesce(sum(dt) filter (where dt > 0 and dt < 180 and km / (dt / 3600) > 4), 0) as fahrzeit_s,
+        max(geschwindigkeit_kmh) filter (where geschwindigkeit_kmh < 300) as max_kmh
+      from d group by tag
+    ),
+    fotos as (
+      select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, count(*) as anzahl,
+             (array_agg(id order by aufgenommen_am))[1:8] as ids
+      from privat.tour_fotos
+      where geraet_id = ${g.id} and aufgenommen_am >= (${ab}::date::timestamp at time zone ${g.zeitzone})
+      group by 1
+    ),
+    kom as (
+      select tag, count(*) as anzahl from privat.tour_kommentare
+      where geraet_id = ${g.id} and tag >= ${ab}::date group by 1
+    ),
+    tage as (select tag from strecke union select tag from fotos union select tag from kom)
+    select t.tag::text as datum, row_number() over (order by t.tag)::int as nr, s.start, s.ende,
+           round(coalesce(s.km, 0)::numeric, 2)::float8 as km, coalesce(s.fahrzeit_s, 0)::int as fahrzeit_s,
+           round(s.max_kmh::numeric)::int as max_kmh,
+           coalesce(f.anzahl, 0)::int as fotos, coalesce(f.ids, '{}') as foto_ids, coalesce(k.anzahl, 0)::int as kommentare
+    from tage t
+    left join strecke s using (tag) left join fotos f using (tag) left join kom k using (tag)
+    order by t.tag`;
+  return json({
+    heute: g.heute,
+    reise_start: g.reise_start,
+    tage: rows.map((r) => ({ ...r, foto_ids: (r.foto_ids as unknown[]).map(Number) })),
+  });
+}
+
+async function kommentareLaden(geraetId: number, seit: number, tag: string) {
+  const rows = await sql`
+    select k.id, k.erstellt_am, k.tag::text as tag, k.name, k.text, k.foto_id, k.vom_fahrer, f.aufgenommen_am as foto_t
     from privat.tour_kommentare k
     left join privat.tour_fotos f on f.id = k.foto_id
-    where k.geraet_id = ${geraetId} and k.erstellt_am > ${ab} and k.id > ${seit}
+    where k.geraet_id = ${geraetId} and k.tag = ${tag}::date and k.id > ${seit}
     order by k.id
-    limit 1000`;
-  return rows.map((k) => ({
-    id: Number(k.id), t: k.erstellt_am, name: k.name, text: k.text,
+    limit 2000`;
+  return rows.map(kommentarJson);
+}
+
+function kommentarJson(k: Record<string, any>) {
+  return {
+    id: Number(k.id), t: k.erstellt_am, tag: k.tag, name: k.name, text: k.text,
     foto_id: k.foto_id === null ? null : Number(k.foto_id), foto_t: k.foto_t, fahrer: k.vom_fahrer,
-  }));
+  };
 }
 
 async function kommentarSchreiben(req: Request, url: URL) {
   const ansicht = url.searchParams.get("ansicht"), sende = url.searchParams.get("id");
-  let geraet: { id: number } | undefined, fahrer = false;
-  if (sende) { [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${sende}`; fahrer = true; }
-  else if (ansicht) { [geraet] = await sql`select id from privat.tour_geraete where ansicht_token = ${ansicht}`; }
+  let geraet: { id: number; heute: string } | undefined, fahrer = false;
+  if (sende) {
+    [geraet] = await sql`select id, (now() at time zone zeitzone)::date::text as heute from privat.tour_geraete where sende_token = ${sende}`;
+    fahrer = true;
+  } else if (ansicht) {
+    [geraet] = await sql`select id, (now() at time zone zeitzone)::date::text as heute from privat.tour_geraete where ansicht_token = ${ansicht}`;
+  }
   if (!geraet) return json({ fehler: "Link ungültig" }, 403);
 
   let body: any;
@@ -225,6 +296,9 @@ async function kommentarSchreiben(req: Request, url: URL) {
   const text = String(body?.text ?? "").trim().slice(0, 500);
   if (!name) return json({ fehler: "Name fehlt" }, 400);
   if (!text) return json({ fehler: "Text fehlt" }, 400);
+  // Kommentar gehört zu dem Tag, den man gerade ansieht (nicht in der Zukunft)
+  let tag = datumOk(body?.tag) ?? geraet.heute;
+  if (tag > geraet.heute) tag = geraet.heute;
 
   let fotoId: number | null = null;
   if (body?.foto_id != null) {
@@ -239,17 +313,25 @@ async function kommentarSchreiben(req: Request, url: URL) {
   if (anzahl >= 20) return json({ fehler: "Zu viele Kommentare, bitte kurz warten" }, 429);
 
   const [neu] = await sql`
-    insert into privat.tour_kommentare (geraet_id, name, text, foto_id, vom_fahrer)
-    values (${geraet.id}, ${name}, ${text}, ${fotoId}, ${fahrer})
+    insert into privat.tour_kommentare (geraet_id, name, text, foto_id, vom_fahrer, tag)
+    values (${geraet.id}, ${name}, ${text}, ${fotoId}, ${fahrer}, ${tag}::date)
     returning id`;
   return json({ ok: true, id: Number(neu.id) });
 }
 
 async function kommentareFuerFahrer(url: URL) {
-  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${url.searchParams.get("id")}`;
+  const [geraet] = await sql`
+    select id, (now() at time zone zeitzone)::date::text as heute from privat.tour_geraete where sende_token = ${url.searchParams.get("id")}`;
   if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
   const seit = Math.max(0, Math.floor(Number(url.searchParams.get("kommentare_seit")) || 0));
-  const kommentare = await kommentareLaden(geraet.id, seit);
+  const rows = await sql`
+    select k.id, k.erstellt_am, k.tag::text as tag, k.name, k.text, k.foto_id, k.vom_fahrer, f.aufgenommen_am as foto_t
+    from privat.tour_kommentare k
+    left join privat.tour_fotos f on f.id = k.foto_id
+    where k.geraet_id = ${geraet.id} and k.tag >= ${geraet.heute}::date - 1 and k.id > ${seit}
+    order by k.id
+    limit 500`;
+  const kommentare = rows.map(kommentarJson);
   return json({ kommentare_cursor: kommentare.length ? kommentare[kommentare.length - 1].id : seit, kommentare });
 }
 

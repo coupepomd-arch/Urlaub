@@ -19,7 +19,9 @@ Live-Seite (index.html)  ────────────────┘  fr
 
 Die Daten liegen im Supabase-Projekt im eigenen Schema `privat`, getrennt von allen anderen Tabellen.
 Das Schema ist nicht über die öffentliche API erreichbar; nur die Edge Function liest und schreibt.
-Positionen älter als 18 Stunden werden auf der Seite nicht mehr angezeigt.
+Es wird nichts gelöscht: Die Seite gliedert alles nach Kalendertagen (Zeitzone `tour_geraete.zeitzone`).
+Heute läuft live, frühere Tage lassen sich mit ‹ › oder über das **📖 Reisebuch** (Übersicht aller Tage
+mit Kilometern, Fahrzeit, Fotos und Kommentaren) ansehen. Das Reisebuch beginnt bei `tour_geraete.reise_start`.
 
 **Keine Schlüssel in dieses Repo schreiben.** Sende- und Ansichtsschlüssel stehen nur in der Datenbank
 (`privat.tour_geraete`).
@@ -53,7 +55,8 @@ Jeder mit dem Live-Link kann unter Angabe eines Namens kommentieren, auch direkt
 Der Fahrer liest und antwortet auf der Foto-Seite; seine Antworten sind mit 🏍️ markiert.
 Gespeichert in `privat.tour_kommentare`, höchstens 20 Kommentare pro Minute.
 
-Kommentar ausblenden: `update privat.tour_kommentare set erstellt_am = erstellt_am - interval '2 days' where id = …;`
+Kommentare gehören zu dem Tag, der beim Schreiben angezeigt wurde (`tag`).
+Kommentar ausblenden: `update privat.tour_kommentare set tag = date '2000-01-01' where id = …;`
 
 ## Neue Schlüssel erzeugen (falls ein Link weitergegeben wurde)
 

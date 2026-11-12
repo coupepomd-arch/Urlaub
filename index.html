@@ -115,6 +115,32 @@
   #hinweis { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 1500; background: var(--text); color: var(--bg);
     padding: 10px 16px; border-radius: 999px; font-weight: 600; box-shadow: var(--schatten); display: none; cursor: pointer;
     max-width: calc(100% - 32px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #tagleiste { display: flex; align-items: center; gap: 6px; margin: -2px 0 12px; }
+  #tagleiste .nav { flex: none; width: 38px; height: 38px; border: 0; border-radius: 10px; background: var(--bg); color: var(--text); font-size: 20px; cursor: pointer; }
+  #tagleiste .nav:disabled { opacity: .3; cursor: default; }
+  #tag-titel { flex: 1; min-width: 0; text-align: center; line-height: 1.2; }
+  #tag-titel b { display: block; font-size: 16px; }
+  #tag-titel small { color: var(--leise); font-size: 13px; }
+  #buch-knopf { flex: none; border: 0; border-radius: 10px; padding: 0 12px; height: 38px; font: inherit; font-weight: 600; background: var(--bg); color: var(--text); cursor: pointer; }
+  #buch { position: fixed; inset: 0; z-index: 1800; background: var(--bg); overflow-y: auto; display: none; }
+  #buch.zeigen { display: block; }
+  #buch .innen { max-width: 640px; margin: 0 auto; padding: max(16px, env(safe-area-inset-top)) 16px 40px; }
+  #buch header { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  #buch h1 { font-size: 24px; margin: 0; flex: 1; }
+  #buch .zu { border: 0; border-radius: 50%; width: 42px; height: 42px; font-size: 20px; background: var(--karte); color: var(--text); cursor: pointer; }
+  #buch-summe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 16px; }
+  #buch-summe div { background: var(--karte); border-radius: 12px; padding: 10px; }
+  #buch-summe b { display: block; font-size: 20px; }
+  #buch-summe small { color: var(--leise); font-size: 12px; }
+  .tagkarte { display: block; width: 100%; text-align: left; border: 0; font: inherit; color: inherit; cursor: pointer;
+    background: var(--karte); border-radius: 16px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 3px rgba(0,0,0,.06); }
+  .tagkarte.aktiv { outline: 2px solid var(--akzent); }
+  .tagkarte h2 { font-size: 17px; margin: 0 0 2px; }
+  .tagkarte h2 small { font-weight: 400; color: var(--leise); font-size: 14px; margin-left: 6px; }
+  .tagkarte .zahlen { color: var(--leise); font-size: 14px; }
+  .tagkarte .bilder { display: flex; gap: 6px; margin-top: 10px; overflow: hidden; }
+  .tagkarte .bilder img { width: 64px; height: 64px; object-fit: cover; border-radius: 8px; flex: none; background: var(--bg); }
+  #buch .leer { color: var(--leise); text-align: center; padding: 30px 0; }
   #kommentare { margin-top: 14px; }
   #kommentare h2 { font-size: 13px; font-weight: 600; color: var(--leise); margin: 0 0 6px; }
   #k-liste { display: grid; gap: 8px; max-height: 260px; overflow-y: auto; margin-bottom: 8px; }
@@ -159,6 +185,12 @@
 <div id="kopf"><div id="status"><span class="punkt"></span><span id="statustext">Verbinde …</span></div></div>
 <div id="karte"></div>
 <div id="panel">
+  <div id="tagleiste">
+    <button class="nav" id="tag-zurueck" type="button" aria-label="Vorheriger Tag">‹</button>
+    <div id="tag-titel"><b id="tag-name">Heute</b><small id="tag-datum"></small></div>
+    <button class="nav" id="tag-vor" type="button" aria-label="Nächster Tag">›</button>
+    <button id="buch-knopf" type="button">📖 Reisebuch</button>
+  </div>
   <div id="gross">
     <div id="tempo">–<span>km/h</span></div>
     <div id="ort">Warte auf erste Position …</div>
@@ -201,6 +233,11 @@
     <div class="foto-k"></div>
     <button class="k-knopf" type="button">💬 Kommentieren</button></div>
 </div>
+<div id="buch" role="dialog" aria-label="Reisebuch"><div class="innen">
+  <header><h1>📖 Reisebuch</h1><button class="zu" type="button" aria-label="Schließen">✕</button></header>
+  <div id="buch-summe"></div>
+  <div id="buch-tage"></div>
+</div></div>
 <div id="hinweis">📷 Neues Foto</div>
 <div id="meldung"><div><div style="font-size:48px">🏍️</div><h1 id="m-titel"></h1><p id="m-text"></p></div></div>
 
@@ -212,7 +249,6 @@
   const INTERVALL_MS = 10000;
   const LIVE_BIS_MIN = 2;      // jünger als 2 Min = live
   const SIGNAL_WEG_MIN = 30;   // älter als 30 Min = rot
-  const NEUE_TOUR_STUNDEN = 2; // Lücke von mehr als 2 h = neue Tour (alte wird ausgeblendet)
 
   const $ = (id) => document.getElementById(id);
   const token = (location.hash.slice(1) || new URLSearchParams(location.search).get("t") || "").trim();
@@ -259,6 +295,10 @@
   let kommentare = [];
   const eigeneKommentare = new Set();
   let kFoto = null;
+  // Tage: angezeigter Tag (JJJJ-MM-TT), heutiger Tag der Reise und Liste aller Tage fürs Reisebuch
+  let tag = null, heute = null, tage = [];
+  try { const t = new URLSearchParams(location.search).get("tag"); if (/^\d{4}-\d{2}-\d{2}$/.test(t || "")) tag = t; } catch (e) {}
+  const istHeute = () => !tag || tag === heute;
 
   // ---------- Hilfsfunktionen ----------
   const rad = (g) => g * Math.PI / 180;
@@ -359,13 +399,29 @@
     else startMarker.setLatLng([s.lat, s.lng]).setTooltipContent("Start " + uhr(s.t));
   }
 
+  function beschriftung(rueckblick) {
+    $("w-hoehe").nextElementSibling.textContent = rueckblick ? "höchster Punkt" : "Höhe";
+    $("w-akku").nextElementSibling.textContent = rueckblick ? "Akku am Ende" : "Handy-Akku";
+  }
+  function werteLeeren() {
+    for (const id of ["w-km", "w-fahrzeit", "w-schnitt", "w-max", "w-hoehe", "w-akku"]) $(id).textContent = "–";
+    $("tempo").innerHTML = "–<span>km/h</span>";
+  }
+
   function anzeigen() {
+    tagleisteZeichnen();
+    beschriftung(!istHeute());
+    $("folgen").hidden = !istHeute();
     if (!punkte.length) {
       $("status").className = "";
-      $("statustext").innerHTML = "Noch keine Daten <small>· warte auf Start</small>";
+      $("statustext").innerHTML = istHeute() ? "Heute noch keine Fahrt <small>· warte auf Start</small>" : "📖 Rückblick <small>· keine Strecke an diesem Tag</small>";
+      $("ort").textContent = istHeute() ? "Sobald Traccar sendet, erscheint hier die Strecke." : "";
+      werteLeeren();
       fotosZeichnen();
+      if (ersteAnsicht && fotos.length) { karte.fitBounds(L.latLngBounds(fotos.filter((f) => f.lat != null).map((f) => [f.lat, f.lng])), { padding: [60, 60], maxZoom: 14 }); ersteAnsicht = false; }
       return;
     }
+    if (!istHeute()) { rueckblickAnzeigen(); return; }
     const letzter = punkte[punkte.length - 1];
     const alterMs = Date.now() - zeit(letzter);
     const live = alterMs < LIVE_BIS_MIN * 60000;
@@ -406,6 +462,138 @@
     else if (folgen) karte.panTo([letzter.lat, letzter.lng], { animate: true });
   }
 
+  // Vergangener Tag: Tageszusammenfassung statt Live-Werten
+  function rueckblickAnzeigen() {
+    const a = auswerten();
+    const erster = punkte[0], letzter = punkte[punkte.length - 1];
+    $("status").className = "";
+    $("statustext").innerHTML = "📖 Rückblick <small>· " + uhr(erster.t) + "–" + uhr(letzter.t) + " Uhr</small>";
+    $("tempo").innerHTML = a.km.toFixed(a.km < 10 ? 1 : 0).replace(".", ",") + "<span>km</span>";
+    $("ort").textContent = "unterwegs von " + uhr(erster.t) + " bis " + uhr(letzter.t) + " Uhr";
+    $("w-km").textContent = a.km.toFixed(a.km < 10 ? 1 : 0).replace(".", ",") + " km";
+    $("w-fahrzeit").textContent = dauerText(a.fahrMs);
+    $("w-schnitt").textContent = a.schnitt ? Math.round(a.schnitt) : "–";
+    $("w-max").textContent = a.max >= 1 ? Math.round(a.max) : "–";
+    const hoehen = punkte.map((p) => p.hoehe).filter((x) => x != null);
+    $("w-hoehe").textContent = hoehen.length ? Math.round(Math.max(...hoehen)) + " m" : "–";
+    $("w-akku").textContent = letzter.akku != null ? Math.round(letzter.akku) + " %" : "–";
+    $("gmaps").href = "https://www.google.com/maps/search/?api=1&query=" + letzter.lat + "," + letzter.lng;
+    markerSetzen(true);
+    streckeZeichnen();
+    fotosZeichnen();
+    if (ersteAnsicht) { ganzeStrecke(); ersteAnsicht = false; }
+  }
+
+  // ---------- Tage und Reisebuch ----------
+  const datumText = (d, lang) => new Date(d + "T12:00:00").toLocaleDateString("de-DE",
+    lang ? { weekday: "long", day: "numeric", month: "long" } : { weekday: "short", day: "numeric", month: "short" });
+  function tagListe() {
+    const liste = tage.map((t) => t.datum);
+    if (heute && !liste.includes(heute)) liste.push(heute);
+    if (tag && !liste.includes(tag)) liste.push(tag);
+    return liste.sort();
+  }
+  function tagNummer(d) {
+    const t = tage.find((x) => x.datum === d);
+    if (t) return t.nr;
+    if (d === heute && tage.length && heute > tage[tage.length - 1].datum) return tage.length + 1;
+    return null;
+  }
+  function tagleisteZeichnen() {
+    const d = tag || heute;
+    if (!d) return;
+    const nr = tagNummer(d);
+    $("tag-name").textContent = (nr ? "Tag " + nr : (d === heute ? "Heute" : "Tag")) + (d === heute && nr ? " · heute" : "");
+    $("tag-datum").textContent = datumText(d, false);
+    const liste = tagListe(), i = liste.indexOf(d);
+    $("tag-zurueck").disabled = i <= 0;
+    $("tag-vor").disabled = i < 0 || i >= liste.length - 1;
+  }
+  function wechsleTag(d) {
+    if (!d || d === (tag || heute)) return;
+    tag = d === heute ? null : d;
+    try {
+      const u = new URL(location.href);
+      if (tag) u.searchParams.set("tag", tag); else u.searchParams.delete("tag");
+      history.replaceState(null, "", u.toString());
+    } catch (e) {}
+    neuLaden();
+  }
+  // alles vom vorherigen Tag zurücksetzen und den gewählten Tag laden
+  function neuLaden() {
+    alle = []; punkte = []; fotos = []; kommentare = [];
+    cursor = null; fotoCursor = 0; kCursor = 0;
+    streckenGruppe.clearLayers(); fotoGruppe.clearLayers();
+    for (const id in fotoMarker) delete fotoMarker[id];
+    if (motoMarker) { karte.removeLayer(motoMarker); motoMarker = null; }
+    if (startMarker) { karte.removeLayer(startMarker); startMarker = null; }
+    ersteAnsicht = true; ersterAbruf = true;
+    folgen = istHeute(); $("folgen").classList.toggle("an", folgen);
+    kFotoSetzen(null);
+    kommentareZeichnen(); fotosZeichnen(); werteLeeren(); tagleisteZeichnen();
+    $("statustext").textContent = "Lade …";
+    laden();
+  }
+  $("tag-zurueck").onclick = () => { const l = tagListe(), i = l.indexOf(tag || heute); if (i > 0) wechsleTag(l[i - 1]); };
+  $("tag-vor").onclick = () => { const l = tagListe(), i = l.indexOf(tag || heute); if (i >= 0 && i < l.length - 1) wechsleTag(l[i + 1]); };
+
+  async function tageLaden() {
+    try {
+      const r = await fetch(API + "?ansicht=" + encodeURIComponent(token) + "&tage=1", { cache: "no-store" });
+      if (!r.ok) return;
+      const d = await r.json();
+      tage = d.tage; heute = d.heute;
+      tagleisteZeichnen();
+      if ($("buch").classList.contains("zeigen")) buchZeichnen();
+    } catch (e) {}
+  }
+  function buchZeichnen() {
+    const summe = tage.reduce((s, t) => ({ km: s.km + t.km, fz: s.fz + t.fahrzeit_s, fotos: s.fotos + t.fotos, k: s.k + t.kommentare,
+      max: Math.max(s.max, t.max_kmh || 0) }), { km: 0, fz: 0, fotos: 0, k: 0, max: 0 });
+    const kachel = (wert, text) => { const d = document.createElement("div"); const b = document.createElement("b"); b.textContent = wert;
+      const s = document.createElement("small"); s.textContent = text; d.append(b, s); return d; };
+    $("buch-summe").replaceChildren(
+      kachel(tage.length, tage.length === 1 ? "Tag" : "Tage"),
+      kachel(Math.round(summe.km).toLocaleString("de-DE") + " km", "gefahren"),
+      kachel(dauerText(summe.fz * 1000), "Fahrzeit"),
+      kachel(summe.max ? summe.max : "–", "max. km/h"),
+      kachel(summe.fotos, "Fotos"),
+      kachel(summe.k, "Kommentare"));
+    const liste = $("buch-tage");
+    liste.textContent = "";
+    if (!tage.length) {
+      const p = document.createElement("p"); p.className = "leer";
+      p.textContent = "Noch keine Tage. Sobald die erste Fahrt beginnt, entsteht hier das Reisebuch. 🏍️";
+      liste.appendChild(p); return;
+    }
+    for (const t of tage.slice().reverse()) {
+      const k = document.createElement("button");
+      k.type = "button"; k.className = "tagkarte" + (t.datum === (tag || heute) ? " aktiv" : "");
+      const h2 = document.createElement("h2"); h2.textContent = "Tag " + t.nr;
+      const sm = document.createElement("small"); sm.textContent = datumText(t.datum, true) + (t.datum === heute ? " · heute" : "");
+      h2.appendChild(sm);
+      const z = document.createElement("div"); z.className = "zahlen";
+      const teile = [];
+      if (t.km > 0.05) teile.push(t.km.toFixed(t.km < 10 ? 1 : 0).replace(".", ",") + " km");
+      if (t.fahrzeit_s > 60) teile.push(dauerText(t.fahrzeit_s * 1000) + " Fahrzeit");
+      if (t.max_kmh) teile.push("max. " + t.max_kmh + " km/h");
+      if (t.start && t.ende) teile.push(uhr(t.start) + "–" + uhr(t.ende) + " Uhr");
+      if (t.fotos) teile.push("📷 " + t.fotos);
+      if (t.kommentare) teile.push("💬 " + t.kommentare);
+      z.textContent = teile.join(" · ") || "keine Strecke";
+      k.append(h2, z);
+      if (t.foto_ids.length) {
+        const b = document.createElement("div"); b.className = "bilder";
+        for (const id of t.foto_ids) { const img = document.createElement("img"); img.alt = ""; img.loading = "lazy"; img.src = fotoUrl(id, true); b.appendChild(img); }
+        k.appendChild(b);
+      }
+      k.onclick = () => { $("buch").classList.remove("zeigen"); wechsleTag(t.datum); };
+      liste.appendChild(k);
+    }
+  }
+  $("buch-knopf").onclick = () => { buchZeichnen(); $("buch").classList.add("zeigen"); tageLaden(); };
+  $("buch").querySelector(".zu").onclick = () => $("buch").classList.remove("zeigen");
+
   function ganzeStrecke() {
     if (!punkte.length) return;
     if (punkte.length === 1) { karte.setView([punkte[0].lat, punkte[0].lng], 14); return; }
@@ -415,9 +603,7 @@
   // ---------- Fotos ----------
   const fotoUrl = (id, klein) => API + "?ansicht=" + encodeURIComponent(token) + "&foto=" + id + (klein ? "&klein=1" : "");
   function tourFotos() {
-    if (!punkte.length) return fotos;
-    const start = zeit(punkte[0]) - 30 * 60000;
-    return fotos.filter((f) => zeit(f) >= start);
+    return fotos;
   }
   function fotosZeichnen() {
     const sichtbar = tourFotos();
@@ -546,7 +732,7 @@
     try {
       const r = await fetch(API + "?ansicht=" + encodeURIComponent(token) + "&kommentar=1", {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, text, foto_id: kFoto }) });
+        body: JSON.stringify({ name, text, foto_id: kFoto, tag: tag || heute }) });
       const d = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(d.fehler || "Senden fehlgeschlagen");
       eigeneKommentare.add(d.id);
@@ -577,7 +763,9 @@
 
   // ---------- Daten laden ----------
   async function laden() {
-    const url = API + "?ansicht=" + encodeURIComponent(token) + (cursor ? "&seit=" + encodeURIComponent(cursor) : "")
+    const angefragt = tag;
+    const url = API + "?ansicht=" + encodeURIComponent(token) + (tag ? "&datum=" + tag : "")
+      + (cursor ? "&seit=" + encodeURIComponent(cursor) : "")
       + (fotoCursor ? "&fotos_seit=" + fotoCursor : "")
       + (kCursor ? "&kommentare_seit=" + kCursor : "");
     try {
@@ -585,17 +773,18 @@
       if (r.status === 403) { meldung("Link ungültig", "Dieser Link funktioniert nicht (mehr)."); return; }
       if (!r.ok) throw new Error("HTTP " + r.status);
       const d = await r.json();
+      if (angefragt !== tag) return;   // inzwischen anderer Tag gewählt
+      const altHeute = heute;
+      heute = d.heute;
+      if (altHeute && altHeute !== heute) {   // Mitternacht: neuer Tag beginnt
+        tageLaden();
+        if (!tag) { neuLaden(); return; }
+      }
       if (d.positionen.length) {
         const bekannt = new Set(alle.map((p) => p.t));
         for (const p of d.positionen) if (!bekannt.has(p.t)) { alle.push(p); bekannt.add(p.t); }
         alle.sort((a, b) => zeit(a) - zeit(b));
-        // Aktuelle Tour = alles nach der letzten großen Lücke
-        let start = 0;
-        for (let i = 1; i < alle.length; i++) {
-          if (zeit(alle[i]) - zeit(alle[i - 1]) > NEUE_TOUR_STUNDEN * 3600000) start = i;
-        }
-        if (punkte.length && start > 0 && punkte[0].t !== alle[start].t) ersteAnsicht = true;
-        punkte = alle.slice(start);
+        punkte = alle;
       }
       if (d.cursor) cursor = d.cursor;
       if (d.fotos && d.fotos.length) {
@@ -641,7 +830,9 @@
   karte.on("dragstart", () => { folgen = false; $("folgen").classList.remove("an"); });
 
   laden();
+  tageLaden();
   setInterval(laden, INTERVALL_MS);
+  setInterval(tageLaden, 5 * 60000);
   setInterval(() => { if (punkte.length) anzeigen(); }, 30000);  // "vor X Min." aktuell halten
   document.addEventListener("visibilitychange", () => { if (!document.hidden) laden(); });
 })();
