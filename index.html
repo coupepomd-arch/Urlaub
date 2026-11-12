@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="robots" content="noindex, nofollow">
-<meta name="referrer" content="no-referrer">
+<meta name="referrer" content="strict-origin">
 <title>Motorrad Live</title>
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏍️</text></svg>">
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
@@ -146,13 +146,11 @@
   const dunkel = matchMedia("(prefers-color-scheme: dark)").matches;
   const karte = L.map("karte", { zoomControl: false, attributionControl: true }).setView([51.1, 10.4], 6);
   L.control.zoom({ position: "bottomright" }).addTo(karte);
-  L.tileLayer(dunkel
-      ? "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-      : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-    maxZoom: 19,
-    attribution: dunkel
-      ? '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a> &copy; <a href="https://carto.com/">CARTO</a>'
-      : '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  // Kartenbilder von CARTO (OpenStreetMap-Daten). Der Schlüssel hinter "#" wird nie mitgeschickt.
+  L.tileLayer("https://{s}.basemaps.cartocdn.com/" + (dunkel ? "dark_all" : "rastertiles/voyager") + "/{z}/{x}/{y}{r}.png", {
+    maxZoom: 20,
+    subdomains: "abcd",
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions">CARTO</a>'
   }).addTo(karte);
 
   const streckenGruppe = L.layerGroup().addTo(karte);
@@ -297,7 +295,7 @@
     $("w-km").textContent = a.km.toFixed(a.km < 10 ? 1 : 0).replace(".", ",") + " km";
     $("w-fahrzeit").textContent = dauerText(a.fahrMs);
     $("w-schnitt").textContent = a.schnitt ? Math.round(a.schnitt) : "–";
-    $("w-max").textContent = a.max ? Math.round(a.max) : "–";
+    $("w-max").textContent = a.max >= 1 ? Math.round(a.max) : "–";
     $("w-hoehe").textContent = letzter.hoehe != null ? Math.round(letzter.hoehe) + " m" : "–";
     $("w-akku").textContent = letzter.akku != null ? Math.round(letzter.akku) + " %" + (letzter.laedt ? " ⚡" : "") : "–";
     $("gmaps").href = "https://www.google.com/maps/search/?api=1&query=" + letzter.lat + "," + letzter.lng;
