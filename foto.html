@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="referrer" content="strict-origin">
+<title>Tour-Fotos</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📷</text></svg>">
+<style>
+  :root {
+    --bg: #f4f5f7; --karte: #fff; --text: #15181d; --leise: #5d6570; --linie: #e3e6ea;
+    --akzent: #1f6feb; --gruen: #12924f; --rot: #d0362b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #0f1216; --karte: #1a1f26; --text: #eef1f4; --leise: #9aa3ad; --linie: #2a313a;
+      --akzent: #5aa2ff; --gruen: #3ccf7e; --rot: #ff6b5e; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 520px; margin: 0 auto; padding: max(18px, env(safe-area-inset-top)) 16px 40px; }
+  h1 { font-size: 24px; margin: 4px 0 4px; }
+  .leise { color: var(--leise); font-size: 14px; margin: 0 0 18px; }
+  .knopf {
+    display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%;
+    border: 0; border-radius: 16px; padding: 22px 16px; margin-bottom: 12px; cursor: pointer;
+    font: inherit; font-size: 20px; font-weight: 700; color: #fff; background: var(--akzent);
+  }
+  .knopf.zwei { background: var(--karte); color: var(--text); border: 1px solid var(--linie); font-size: 18px; padding: 16px; }
+  input[type=file] { display: none; }
+  label.feld { display: block; font-size: 14px; color: var(--leise); margin: 6px 0 6px; }
+  textarea {
+    width: 100%; border: 1px solid var(--linie); border-radius: 12px; padding: 12px; font: inherit;
+    background: var(--karte); color: var(--text); resize: vertical; min-height: 56px;
+  }
+  #liste { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 10px; }
+  #liste li { display: flex; gap: 12px; align-items: center; background: var(--karte); border-radius: 14px; padding: 10px; }
+  #liste img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; flex: none; background: var(--bg); }
+  #liste .info { flex: 1; min-width: 0; }
+  #liste .titel { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #liste .status { font-size: 14px; color: var(--leise); }
+  #liste .ok .status { color: var(--gruen); font-weight: 600; }
+  #liste .fehler .status { color: var(--rot); font-weight: 600; }
+  #liste button { border: 0; border-radius: 10px; padding: 8px 12px; font: inherit; background: var(--bg); color: var(--text); }
+  #meldung { display: none; text-align: center; padding: 60px 10px; }
+</style>
+</head>
+<body>
+<main id="app">
+  <h1>📷 Tour-Fotos</h1>
+  <p class="leise">Fotos erscheinen auf der Live-Karte an der Stelle, an der sie aufgenommen wurden.</p>
+
+  <button class="knopf" id="kamera" type="button">📷 Foto machen</button>
+  <button class="knopf zwei" id="galerie" type="button">🖼️ Aus Galerie wählen</button>
+  <input id="in-kamera" type="file" accept="image/*" capture="environment">
+  <input id="in-galerie" type="file" accept="image/*" multiple>
+
+  <label class="feld" for="titel">Text zum nächsten Foto (optional)</label>
+  <textarea id="titel" maxlength="300" placeholder="z. B. Kaffeepause am Teide ☕"></textarea>
+
+  <ul id="liste"></ul>
+</main>
+<div id="meldung"><h1>Kein Zugang</h1><p class="leise">Bitte den vollständigen Link mit Schlüssel verwenden.</p></div>
+
+<script>
+(() => {
+  const API = "https://qdqtvaoqhhecoeqvxsqq.supabase.co/functions/v1/motorrad-tour";
+  const $ = (id) => document.getElementById(id);
+
+  let token = location.hash.slice(1).trim();
+  try {
+    if (token) localStorage.setItem("sendeToken", token);
+    else token = localStorage.getItem("sendeToken") || "";
+  } catch (e) {}
+  if (!token) { $("app").style.display = "none"; $("meldung").style.display = "block"; return; }
+
+  $("kamera").onclick = () => $("in-kamera").click();
+  $("galerie").onclick = () => $("in-galerie").click();
+  $("in-kamera").onchange = (e) => { neueDateien(e.target.files); e.target.value = ""; };
+  $("in-galerie").onchange = (e) => { neueDateien(e.target.files); e.target.value = ""; };
+
+  // Standort dieses Handys (nur als Notlösung, falls keine Streckenpunkte passen)
+  let standort = null;
+  function standortHolen() {
+    if (!navigator.geolocation) return;
+    navigator.geolocation.getCurrentPosition(
+      (p) => { standort = { lat: p.coords.latitude, lng: p.coords.longitude }; },
+      () => {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 120000 });
+  }
+
+  async function verkleinern(datei, max, qualitaet) {
+    let quelle;
+    try { quelle = await createImageBitmap(datei, { imageOrientation: "from-image" }); }
+    catch (e) {
+      quelle = await new Promise((ok, fehler) => {
+        const img = new Image(); img.onload = () => ok(img); img.onerror = fehler; img.src = URL.createObjectURL(datei);
+      });
+    }
+    const b = quelle.width, h = quelle.height, f = Math.min(1, max / Math.max(b, h));
+    const c = document.createElement("canvas");
+    c.width = Math.round(b * f); c.height = Math.round(h * f);
+    c.getContext("2d").drawImage(quelle, 0, 0, c.width, c.height);
+    return new Promise((ok) => c.toBlob(ok, "image/jpeg", qualitaet));
+  }
+
+  function neueDateien(dateien) {
+    if (!dateien || !dateien.length) return;
+    standortHolen();
+    const titel = $("titel").value.trim();
+    $("titel").value = "";
+    for (const d of dateien) hochladen(d, titel);
+  }
+
+  async function hochladen(datei, titel) {
+    const li = document.createElement("li");
+    li.innerHTML = '<img alt=""><div class="info"><div class="titel"></div><div class="status">wird vorbereitet …</div></div>';
+    li.querySelector(".titel").textContent = titel || datei.name || "Foto";
+    $("liste").prepend(li);
+    const status = (t, klasse) => { li.className = klasse || ""; li.querySelector(".status").textContent = t; };
+
+    let bild, vorschau;
+    try {
+      bild = await verkleinern(datei, 1600, 0.82);
+      vorschau = await verkleinern(datei, 360, 0.75);
+      li.querySelector("img").src = URL.createObjectURL(vorschau);
+    } catch (e) { status("Bild konnte nicht gelesen werden", "fehler"); return; }
+
+    // Aufnahmezeit: Änderungsdatum der Datei, falls plausibel (letzte 7 Tage), sonst jetzt
+    const lm = datei.lastModified;
+    const zeit = lm && Math.abs(Date.now() - lm) < 7 * 864e5 ? lm : Date.now();
+
+    for (let versuch = 1; versuch <= 6; versuch++) {
+      status(versuch === 1 ? "wird gesendet …" : "neuer Versuch (" + versuch + "/6) …");
+      try {
+        const fd = new FormData();
+        fd.append("bild", bild, "bild.jpg");
+        fd.append("vorschau", vorschau, "vorschau.jpg");
+        fd.append("zeit", String(zeit));
+        if (titel) fd.append("titel", titel);
+        if (standort) { fd.append("lat", standort.lat); fd.append("lng", standort.lng); }
+        const r = await fetch(API + "?foto=1&id=" + encodeURIComponent(token), { method: "POST", body: fd });
+        if (r.status === 403) { status("Schlüssel ungültig", "fehler"); return; }
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        status("✓ auf der Karte", "ok");
+        return;
+      } catch (e) {
+        await new Promise((ok) => setTimeout(ok, Math.min(30000, 2000 * 2 ** versuch)));
+      }
+    }
+    status("Senden fehlgeschlagen", "fehler");
+    const k = document.createElement("button");
+    k.textContent = "Nochmal"; k.type = "button";
+    k.onclick = () => { li.remove(); hochladen(datei, titel); };
+    li.appendChild(k);
+  }
+})();
+</script>
+</body>
+</html>

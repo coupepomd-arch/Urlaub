@@ -92,6 +92,27 @@
   .moto.alt { border-color: var(--leise); filter: grayscale(.6); }
   .start { width: 14px; height: 14px; border-radius: 50%; background: var(--gruen); border: 3px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.4); }
 
+  .foto-pin { width: 46px; height: 46px; border-radius: 10px; border: 3px solid #fff; overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,.5); background: #ddd; }
+  .foto-pin img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #fotos { margin-top: 12px; display: none; }
+  #fotos h2 { font-size: 13px; font-weight: 600; color: var(--leise); margin: 0 0 6px; }
+  #fotoleiste { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  #fotoleiste button { flex: none; width: 72px; height: 72px; padding: 0; border: 0; border-radius: 10px; overflow: hidden; cursor: pointer; background: var(--bg); }
+  #fotoleiste img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  #gross-foto { position: fixed; inset: 0; z-index: 2000; background: rgba(0,0,0,.92); display: none;
+    flex-direction: column; align-items: center; justify-content: center; padding: 16px; color: #fff; }
+  #gross-foto.zeigen { display: flex; }
+  #gross-foto img { max-width: 100%; max-height: calc(100% - 110px); object-fit: contain; border-radius: 8px; }
+  #gross-foto .unter { margin-top: 12px; text-align: center; max-width: 640px; }
+  #gross-foto .unter small { color: #bbb; }
+  #gross-foto .zu, #gross-foto .pfeil { position: absolute; border: 0; background: rgba(255,255,255,.15); color: #fff;
+    width: 48px; height: 48px; border-radius: 50%; font-size: 24px; cursor: pointer; }
+  #gross-foto .zu { top: max(14px, env(safe-area-inset-top)); right: 14px; }
+  #gross-foto .pfeil { top: 50%; transform: translateY(-50%); }
+  #gross-foto .zurueck { left: 10px; } #gross-foto .vor { right: 10px; }
+  #hinweis { position: fixed; left: 50%; transform: translateX(-50%); bottom: 24px; z-index: 1500; background: var(--text); color: var(--bg);
+    padding: 10px 16px; border-radius: 999px; font-weight: 600; box-shadow: var(--schatten); display: none; cursor: pointer; }
   #meldung { position: fixed; inset: 0; z-index: 1000; display: none; place-items: center; background: var(--bg); padding: 24px; text-align: center; }
   #meldung.zeigen { display: grid; }
   #meldung div { max-width: 360px; }
@@ -121,12 +142,21 @@
     <div class="wert"><b id="w-hoehe">–</b><small>Höhe</small></div>
     <div class="wert"><b id="w-akku">–</b><small>Handy-Akku</small></div>
   </div>
+  <div id="fotos"><h2 id="fotos-titel">Fotos</h2><div id="fotoleiste"></div></div>
   <div class="knoepfe">
     <button id="folgen" class="an" type="button">📍 Folgen</button>
     <button id="ganze" type="button">🗺️ Ganze Strecke</button>
     <a id="gmaps" href="#" target="_blank" rel="noopener">Google Maps</a>
   </div>
 </div>
+<div id="gross-foto" role="dialog" aria-label="Foto">
+  <button class="zu" type="button" aria-label="Schließen">✕</button>
+  <button class="pfeil zurueck" type="button" aria-label="Vorheriges Foto">‹</button>
+  <button class="pfeil vor" type="button" aria-label="Nächstes Foto">›</button>
+  <img alt="">
+  <div class="unter"><div class="text"></div><small class="zeit"></small></div>
+</div>
+<div id="hinweis">📷 Neues Foto</div>
 <div id="meldung"><div><div style="font-size:48px">🏍️</div><h1 id="m-titel"></h1><p id="m-text"></p></div></div>
 
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
@@ -175,6 +205,11 @@
   let ersteAnsicht = true;
   let fehlerZaehler = 0;
   let cursor = null;
+  let fotoCursor = 0;
+  let fotos = [];          // alle geladenen Fotos
+  const fotoMarker = {};   // id -> Leaflet-Marker
+  let ersterAbruf = true;
+  const fotoGruppe = L.layerGroup().addTo(karte);
 
   // ---------- Hilfsfunktionen ----------
   const rad = (g) => g * Math.PI / 180;
@@ -279,6 +314,7 @@
     if (!punkte.length) {
       $("status").className = "";
       $("statustext").innerHTML = "Noch keine Daten <small>· warte auf Start</small>";
+      fotosZeichnen();
       return;
     }
     const letzter = punkte[punkte.length - 1];
@@ -316,6 +352,7 @@
 
     markerSetzen(!live);
     streckeZeichnen();
+    fotosZeichnen();
     if (ersteAnsicht) { ganzeStrecke(); ersteAnsicht = false; }
     else if (folgen) karte.panTo([letzter.lat, letzter.lng], { animate: true });
   }
@@ -326,9 +363,77 @@
     karte.fitBounds(L.latLngBounds(punkte.map((p) => [p.lat, p.lng])), { padding: [60, 60], maxZoom: 15 });
   }
 
+  // ---------- Fotos ----------
+  const fotoUrl = (id, klein) => API + "?ansicht=" + encodeURIComponent(token) + "&foto=" + id + (klein ? "&klein=1" : "");
+  function tourFotos() {
+    if (!punkte.length) return fotos;
+    const start = zeit(punkte[0]) - 30 * 60000;
+    return fotos.filter((f) => zeit(f) >= start);
+  }
+  function fotosZeichnen() {
+    const sichtbar = tourFotos();
+    const ids = new Set(sichtbar.map((f) => f.id));
+    for (const id in fotoMarker) if (!ids.has(Number(id))) { fotoGruppe.removeLayer(fotoMarker[id]); delete fotoMarker[id]; }
+    for (const f of sichtbar) {
+      if (fotoMarker[f.id] || f.lat == null) continue;
+      const icon = L.divIcon({ className: "", html: '<div class="foto-pin"><img alt="" src="' + fotoUrl(f.id, true) + '"></div>', iconSize: [46, 46], iconAnchor: [23, 23] });
+      fotoMarker[f.id] = L.marker([f.lat, f.lng], { icon, zIndexOffset: 500 }).addTo(fotoGruppe).on("click", () => fotoZeigen(f.id));
+    }
+    const leiste = $("fotoleiste");
+    leiste.textContent = "";
+    for (const f of sichtbar.slice().reverse()) {
+      const b = document.createElement("button");
+      b.type = "button"; b.title = f.titel || "Foto " + uhr(f.t);
+      const img = document.createElement("img"); img.alt = f.titel || "Foto"; img.loading = "lazy"; img.src = fotoUrl(f.id, true);
+      b.appendChild(img); b.onclick = () => fotoZeigen(f.id);
+      leiste.appendChild(b);
+    }
+    $("fotos").style.display = sichtbar.length ? "block" : "none";
+    $("fotos-titel").textContent = sichtbar.length === 1 ? "1 Foto" : sichtbar.length + " Fotos";
+  }
+  let aktuellesFoto = null;
+  function fotoZeigen(id) {
+    const liste = tourFotos(), i = liste.findIndex((f) => f.id === id);
+    if (i < 0) return;
+    const f = liste[i];
+    aktuellesFoto = id;
+    const box = $("gross-foto");
+    box.querySelector("img").src = fotoUrl(f.id, false);
+    box.querySelector(".text").textContent = f.titel || "";
+    box.querySelector(".zeit").textContent = uhr(f.t) + " Uhr";
+    box.querySelector(".zurueck").style.visibility = i > 0 ? "visible" : "hidden";
+    box.querySelector(".vor").style.visibility = i < liste.length - 1 ? "visible" : "hidden";
+    box.classList.add("zeigen");
+    if (f.lat != null) { folgen = false; $("folgen").classList.remove("an"); karte.setView([f.lat, f.lng], Math.max(karte.getZoom(), 14)); }
+  }
+  function fotoBlaettern(r) {
+    const liste = tourFotos(), i = liste.findIndex((f) => f.id === aktuellesFoto);
+    if (liste[i + r]) fotoZeigen(liste[i + r].id);
+  }
+  const fotoZu = () => $("gross-foto").classList.remove("zeigen");
+  $("gross-foto").querySelector(".zu").onclick = fotoZu;
+  $("gross-foto").querySelector(".zurueck").onclick = (e) => { e.stopPropagation(); fotoBlaettern(-1); };
+  $("gross-foto").querySelector(".vor").onclick = (e) => { e.stopPropagation(); fotoBlaettern(1); };
+  $("gross-foto").onclick = (e) => { if (e.target.id === "gross-foto") fotoZu(); };
+  document.addEventListener("keydown", (e) => {
+    if (!$("gross-foto").classList.contains("zeigen")) return;
+    if (e.key === "Escape") fotoZu();
+    if (e.key === "ArrowLeft") fotoBlaettern(-1);
+    if (e.key === "ArrowRight") fotoBlaettern(1);
+  });
+  let hinweisTimer;
+  function neuesFotoHinweis(id) {
+    const h = $("hinweis");
+    h.style.display = "block";
+    h.onclick = () => { h.style.display = "none"; fotoZeigen(id); };
+    clearTimeout(hinweisTimer);
+    hinweisTimer = setTimeout(() => { h.style.display = "none"; }, 15000);
+  }
+
   // ---------- Daten laden ----------
   async function laden() {
-    const url = API + "?ansicht=" + encodeURIComponent(token) + (cursor ? "&seit=" + encodeURIComponent(cursor) : "");
+    const url = API + "?ansicht=" + encodeURIComponent(token) + (cursor ? "&seit=" + encodeURIComponent(cursor) : "")
+      + (fotoCursor ? "&fotos_seit=" + fotoCursor : "");
     try {
       const r = await fetch(url, { cache: "no-store" });
       if (r.status === 403) { meldung("Link ungültig", "Dieser Link funktioniert nicht (mehr)."); return; }
@@ -347,6 +452,14 @@
         punkte = alle.slice(start);
       }
       if (d.cursor) cursor = d.cursor;
+      if (d.fotos && d.fotos.length) {
+        const bekannteFotos = new Set(fotos.map((f) => f.id));
+        const neue = d.fotos.filter((f) => !bekannteFotos.has(f.id));
+        fotos = fotos.concat(neue).sort((a, b) => zeit(a) - zeit(b));
+        if (!ersterAbruf && neue.length) neuesFotoHinweis(neue[neue.length - 1].id);
+      }
+      if (d.fotos_cursor) fotoCursor = d.fotos_cursor;
+      ersterAbruf = false;
       fehlerZaehler = 0;
       anzeigen();
     } catch (e) {

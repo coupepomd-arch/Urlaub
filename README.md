@@ -14,7 +14,8 @@ Live-Seite (index.html)  ────────────────┘  fr
 | Datei | Zweck |
 |---|---|
 | `index.html` | Live-Seite (Karte + Werte). Der Zugang steht als geheimer Schlüssel hinter dem `#` im Link. |
-| `supabase/functions/motorrad-tour/index.ts` | Nimmt Positionen vom Handy an und liefert sie an die Seite. |
+| `foto.html` | Upload-Seite für Fotos unterwegs. Der Sendeschlüssel steht hinter dem `#` im Link. |
+| `supabase/functions/motorrad-tour/index.ts` | Nimmt Positionen und Fotos vom Handy an und liefert sie an die Seite. |
 
 Die Daten liegen im Supabase-Projekt im eigenen Schema `privat`, getrennt von allen anderen Tabellen.
 Das Schema ist nicht über die öffentliche API erreichbar; nur die Edge Function liest und schreibt.
@@ -38,6 +39,13 @@ Positionen älter als 18 Stunden werden auf der Seite nicht mehr angezeigt.
 ## Live-Seite ansehen
 
 `https://<github-pages-adresse>/#<ansichtsschlüssel>`
+
+## Fotos unterwegs
+
+`https://<github-pages-adresse>/foto.html#<sendeschlüssel>` auf dem Handy öffnen (am besten zum
+Startbildschirm hinzufügen). Fotos werden vor dem Hochladen verkleinert (max. 1600 px) und in
+`privat.tour_fotos` gespeichert. Der Ort wird über die Aufnahmezeit dem nächsten Streckenpunkt
+(± 15 Min.) zugeordnet, sonst dem Standort des Handys beim Hochladen.
 
 ## Neue Schlüssel erzeugen (falls ein Link weitergegeben wurde)
 

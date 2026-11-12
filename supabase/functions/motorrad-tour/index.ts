@@ -2,7 +2,9 @@
 //
 // Senden:  GET/POST  .../motorrad-tour?id=<SENDE_TOKEN>&lat=..&lon=..   (OsmAnd-Format)
 //          POST      .../motorrad-tour  JSON {device_id, location:{coords:{...}, battery:{...}}}
-// Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&seit=<ISO-Zeit>]
+// Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&seit=<Nr>][&fotos_seit=<Nr>]
+// Foto hochladen: POST .../motorrad-tour?id=<SENDE_TOKEN>&foto=1  (multipart: bild, vorschau, zeit, titel, lat, lng)
+// Foto ansehen:   GET  .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&foto=<Nr>[&klein=1]
 import postgres from "npm:postgres@3.4.5";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false });
@@ -161,8 +163,17 @@ async function ansehen(url: URL) {
     order by id
     limit 20000`;
 
+  const fotosSeit = Math.max(0, Math.floor(Number(url.searchParams.get("fotos_seit")) || 0));
+  const fotos = await sql`
+    select id, aufgenommen_am, lat, lng, titel
+    from privat.tour_fotos
+    where geraet_id = ${geraet.id} and aufgenommen_am > ${ab} and id > ${fotosSeit}
+    order by id`;
+
   return json({
     name: geraet.name,
+    fotos_cursor: fotos.length ? Number(fotos[fotos.length - 1].id) : fotosSeit,
+    fotos: fotos.map((f) => ({ id: Number(f.id), t: f.aufgenommen_am, lat: f.lat, lng: f.lng, titel: f.titel })),
     cursor: rows.length ? Number(rows[rows.length - 1].id) : seit,
     positionen: rows.map((r) => ({
       t: r.aufgenommen_am,
@@ -178,11 +189,74 @@ async function ansehen(url: URL) {
   });
 }
 
+const MAX_BILD = 6 * 1024 * 1024;
+
+async function fotoHochladen(req: Request, url: URL) {
+  const token = url.searchParams.get("id");
+  if (!token) return json({ fehler: "unbekanntes Gerät" }, 403);
+  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${token}`;
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+
+  const form = await req.formData();
+  const bild = form.get("bild"), vorschau = form.get("vorschau");
+  if (!(bild instanceof File) || !(vorschau instanceof File)) return json({ fehler: "Bild fehlt" }, 400);
+  if (bild.size > MAX_BILD || vorschau.size > MAX_BILD) return json({ fehler: "Bild zu groß" }, 413);
+  if (!bild.type.startsWith("image/") || !vorschau.type.startsWith("image/")) return json({ fehler: "kein Bild" }, 415);
+
+  const zeit = zeitAus(form.get("zeit"));
+  const titel = String(form.get("titel") ?? "").trim().slice(0, 300) || null;
+
+  // Ort: Streckenpunkt, der zeitlich am nächsten an der Aufnahme liegt (max. 15 Min.),
+  // sonst der Standort des Handys beim Hochladen, sonst der letzte bekannte Punkt.
+  let lat: number | null = null, lng: number | null = null;
+  const [nah] = await sql`
+    select lat, lng from privat.tour_positionen
+    where geraet_id = ${geraet.id}
+      and aufgenommen_am between ${new Date(zeit.getTime() - 15 * 60000)} and ${new Date(zeit.getTime() + 15 * 60000)}
+    order by abs(extract(epoch from (aufgenommen_am - ${zeit}::timestamptz)))
+    limit 1`;
+  if (nah) { lat = nah.lat; lng = nah.lng; }
+  else {
+    const fl = zahl(form.get("lat")), fg = zahl(form.get("lng"));
+    if (fl !== null && fg !== null) { lat = fl; lng = fg; }
+    else {
+      const [letzter] = await sql`
+        select lat, lng from privat.tour_positionen where geraet_id = ${geraet.id}
+        order by aufgenommen_am desc limit 1`;
+      if (letzter) { lat = letzter.lat; lng = letzter.lng; }
+    }
+  }
+
+  const [neu] = await sql`
+    insert into privat.tour_fotos (geraet_id, aufgenommen_am, lat, lng, titel, bild, vorschau)
+    values (${geraet.id}, ${zeit}, ${lat}, ${lng}, ${titel},
+            ${new Uint8Array(await bild.arrayBuffer())}, ${new Uint8Array(await vorschau.arrayBuffer())})
+    returning id`;
+  return json({ ok: true, id: Number(neu.id), lat, lng });
+}
+
+async function fotoLiefern(url: URL) {
+  const token = url.searchParams.get("ansicht")!;
+  const id = Math.floor(Number(url.searchParams.get("foto")) || 0);
+  const klein = url.searchParams.get("klein") === "1";
+  const [f] = klein
+    ? await sql`select f.vorschau as daten from privat.tour_fotos f join privat.tour_geraete g on g.id = f.geraet_id
+                where g.ansicht_token = ${token} and f.id = ${id}`
+    : await sql`select f.bild as daten from privat.tour_fotos f join privat.tour_geraete g on g.id = f.geraet_id
+                where g.ansicht_token = ${token} and f.id = ${id}`;
+  if (!f) return json({ fehler: "nicht gefunden" }, 404);
+  return new Response(f.daten, {
+    headers: { ...cors, "Content-Type": "image/jpeg", "Cache-Control": "private, max-age=604800, immutable" },
+  });
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
   const url = new URL(req.url);
   try {
+    if (req.method === "GET" && url.searchParams.has("ansicht") && url.searchParams.has("foto")) return await fotoLiefern(url);
     if (req.method === "GET" && url.searchParams.has("ansicht")) return await ansehen(url);
+    if (req.method === "POST" && url.searchParams.has("foto")) return await fotoHochladen(req, url);
     if (req.method === "GET" || req.method === "POST") return await empfangen(req, url);
     return json({ fehler: "Methode nicht erlaubt" }, 405);
   } catch (e) {
