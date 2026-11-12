@@ -42,6 +42,8 @@
   body { display: flex; flex-direction: column; }
   #karte { flex: 1; min-height: 45vh; }
   .leaflet-container { background: var(--bg); }
+  /* dunkler Rand um die Strecke, damit sie auch auf Satellitenbildern gut sichtbar ist */
+  .leaflet-overlay-pane path { filter: drop-shadow(0 0 1.5px rgba(0,0,0,.9)); }
   @media (prefers-color-scheme: dark) {
     .kacheln-strasse { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
   }
@@ -159,7 +161,7 @@
     "Satellit": L.tileLayer("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", {
       maxZoom: 19, attribution: "Bilder &copy; Esri" }),
   };
-  let ebeneName = "Straße";
+  let ebeneName = "Satellit";
   try { const g = localStorage.getItem("karte"); if (g && ebenen[g]) ebeneName = g; } catch (e) {}
   ebenen[ebeneName].addTo(karte);
   L.control.layers(ebenen, null, { position: "topright" }).addTo(karte);
