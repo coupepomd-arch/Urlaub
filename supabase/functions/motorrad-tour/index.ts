@@ -1,6 +1,7 @@
 // Empfängt Positionen vom Handy (Traccar Client) und liefert sie an die Live-Seite.
 //
-// Senden:  GET/POST  .../motorrad-tour?id=<SENDE_TOKEN>&lat=..&lon=..   (OsmAnd-Format)
+// Senden:  GET/POST  .../motorrad-tour?id=<SENDE_TOKEN oder ERSATZ_TOKEN>&lat=..&lon=..   (OsmAnd-Format)
+//          Das Ersatz-Handy wird nur gespeichert, wenn das Haupt-Handy 90 s lang nichts gesendet hat.
 //          POST      .../motorrad-tour  JSON {device_id, location:{coords:{...}, battery:{...}}}
 // Lesen:   GET       .../motorrad-tour?ansicht=<ANSICHT_TOKEN>[&datum=JJJJ-MM-TT][&seit=<Nr>][&fotos_seit=<Nr>][&kommentare_seit=<Nr>]
 // Reisebuch: GET     .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&tage=1
@@ -136,8 +137,22 @@ async function empfangen(req: Request, url: URL) {
 
   const token = punkte.find((p) => p.token)?.token;
   if (!token) return json({ fehler: "unbekanntes Gerät" }, 403);
-  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${token}`;
+  // Haupt-Handy (sende_token) oder Ersatz-Handy (ersatz_token)
+  const [geraet] = await sql`
+    select id, (sende_token = ${token}) as haupt from privat.tour_geraete
+    where sende_token = ${token} or ersatz_token = ${token}`;
   if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+  const quelle = geraet.haupt ? "haupt" : "ersatz";
+
+  // Das Ersatz-Handy übernimmt nur, wenn das Haupt-Handy in den letzten 90 Sekunden nichts gesendet hat.
+  // Seine Punkte werden sonst still verworfen (mit "ok", damit die App nicht endlos neu sendet).
+  if (!geraet.haupt) {
+    const [aktiv] = await sql`
+      select 1 from privat.tour_positionen
+      where geraet_id = ${geraet.id} and quelle = 'haupt' and empfangen_am > now() - interval '90 seconds'
+      limit 1`;
+    if (aktiv) return json({ ok: true, gespeichert: 0, hinweis: "Haupt-Handy aktiv" });
+  }
 
   // Doppelt gesendete Punkte (gleiche Aufnahmezeit) werden übersprungen,
   // trotzdem mit "ok" beantwortet, damit die App nicht endlos neu sendet.
@@ -146,8 +161,8 @@ async function empfangen(req: Request, url: URL) {
     if (p.token && p.token !== token) continue;
     const r = await sql`
       insert into privat.tour_positionen
-        (geraet_id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt)
-      select ${geraet.id}, ${p.zeit}, ${p.lat}, ${p.lng}, ${p.kmh}, ${p.richtung}, ${p.hoehe}, ${p.genauigkeit}, ${p.akku}, ${p.laedt}
+        (geraet_id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt, quelle)
+      select ${geraet.id}, ${p.zeit}, ${p.lat}, ${p.lng}, ${p.kmh}, ${p.richtung}, ${p.hoehe}, ${p.genauigkeit}, ${p.akku}, ${p.laedt}, ${quelle}
       where not exists (
         select 1 from privat.tour_positionen
         where geraet_id = ${geraet.id} and aufgenommen_am = ${p.zeit})

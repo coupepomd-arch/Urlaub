@@ -38,6 +38,13 @@ mit Kilometern, Fahrzeit, Fotos und Kommentaren) ansehen. Das Reisebuch beginnt 
 3. Android-Akkuoptimierung für Traccar Client ausschalten, sonst stoppt Android die App im Hintergrund.
 4. Dienst starten. Auf der Live-Seite sollte nach wenigen Sekunden der erste Punkt erscheinen.
 
+### Ersatz-Handy (optional)
+
+Ein zweites Handy kann Traccar mit der **Ersatz-Kennung** (`tour_geraete.ersatz_token`) mitlaufen lassen.
+Seine Punkte werden nur gespeichert, wenn das Haupt-Handy 90 Sekunden lang nichts gesendet hat
+(Spalte `tour_positionen.quelle` = `haupt` oder `ersatz`). Empfohlen für beide: Intervall 5 s, Winkel 20°,
+damit Kurven und Kehren sauber aufgezeichnet werden.
+
 ## Live-Seite ansehen
 
 `https://<github-pages-adresse>/#<ansichtsschlüssel>`
