@@ -12,7 +12,10 @@
 // Kommentare für den Fahrer: GET .../motorrad-tour?id=<SENDE_TOKEN>&kommentare=1[&kommentare_seit=<Nr>]
 // Schnellmeldung vom Fahrer: POST .../motorrad-tour?id=<SENDE_TOKEN>&kommentar=1  JSON {art, lat?, lng?}
 // Reaktion umschalten:       POST .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&reaktion=1  JSON {ziel_typ, ziel_id, emoji, wer}
+// GPX-Strecke hochladen:     POST .../motorrad-tour?id=<SENDE_TOKEN>&gpx=1  (multipart: datei, oder die GPX-Datei als Rohtext)
+//                            Ersetzt für diesen Tag die Live-Strecke in Rückblick und Reisebuch; Live-Daten bleiben gespeichert.
 import postgres from "npm:postgres@3.4.5";
+import { ausduennen, auswerten, gpxLesen, miniLinie, tempoSetzen } from "./gpx.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false });
 
@@ -194,12 +197,26 @@ async function ansehen(url: URL) {
   const nummer = (name: string) => Math.max(0, Math.floor(Number(url.searchParams.get(name)) || 0));
   const seit = nummer("seit"), fotosSeit = nummer("fotos_seit"), kSeit = nummer("kommentare_seit");
 
-  const rows = await sql`
-    select id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt
-    from privat.tour_positionen
-    where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis} and id > ${seit}
-    order by id
-    limit 50000`;
+  // Gibt es für den Tag eine hochgeladene GPX-Strecke, ersetzt sie die Live-Punkte (einmalig vollständig geliefert).
+  const [gpx] = await sql`
+    select id, name, km, fahrzeit_s, max_kmh, anstieg_m, abstieg_m, hoehe_max, hoehe_max_lat, hoehe_max_lng, start, ende
+    from privat.tour_gpx where geraet_id = ${g.id} and tag = ${datum}::date`;
+  let rows: any[], cursorNeu: number;
+  if (gpx) {
+    rows = seit > 0 ? [] : (await sql`
+      select t as aufgenommen_am, lat, lng, kmh as geschwindigkeit_kmh, hoehe as hoehe_m
+      from privat.tour_gpx_punkte where gpx_id = ${gpx.id} order by nr`);
+    const [{ max }] = await sql`select coalesce(max(id), 0)::bigint as max from privat.tour_positionen where geraet_id = ${g.id}`;
+    cursorNeu = Math.max(1, seit, Number(max));
+  } else {
+    rows = await sql`
+      select id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt
+      from privat.tour_positionen
+      where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis} and id > ${seit}
+      order by id
+      limit 50000`;
+    cursorNeu = rows.length ? Number(rows[rows.length - 1].id) : seit;
+  }
 
   const fotos = await sql`
     select id, aufgenommen_am, lat, lng, titel
@@ -231,7 +248,11 @@ async function ansehen(url: URL) {
     kommentare,
     fotos_cursor: fotos.length ? Number(fotos[fotos.length - 1].id) : fotosSeit,
     fotos: fotos.map((f) => ({ id: Number(f.id), t: f.aufgenommen_am, lat: f.lat, lng: f.lng, titel: f.titel })),
-    cursor: rows.length ? Number(rows[rows.length - 1].id) : seit,
+    gpx: gpx ? {
+      name: gpx.name, km: gpx.km, fahrzeit_s: gpx.fahrzeit_s, max_kmh: gpx.max_kmh, anstieg_m: gpx.anstieg_m, abstieg_m: gpx.abstieg_m,
+      hoehe_max: gpx.hoehe_max, hoehe_max_lat: gpx.hoehe_max_lat, hoehe_max_lng: gpx.hoehe_max_lng, start: gpx.start, ende: gpx.ende,
+    } : null,
+    cursor: cursorNeu,
     positionen: rows.map((r) => ({
       t: r.aufgenommen_am,
       lat: r.lat,
@@ -251,7 +272,7 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
   const ab = g.reise_start ?? "1970-01-01";
   const rows = await sql`
     with p as (
-      select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, aufgenommen_am, lat, lng, geschwindigkeit_kmh,
+      select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, aufgenommen_am, lat, lng, geschwindigkeit_kmh, hoehe_m,
              lag(lat) over w as plat, lag(lng) over w as plng, lag(aufgenommen_am) over w as pt
       from privat.tour_positionen
       where geraet_id = ${g.id} and (genauigkeit_m is null or genauigkeit_m <= 60)
@@ -268,8 +289,13 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
       select tag, min(aufgenommen_am) as start, max(aufgenommen_am) as ende,
         coalesce(sum(km) filter (where km > 0.005 and dt > 0 and km / (dt / 3600) < 300), 0) as km,
         coalesce(sum(dt) filter (where dt > 0 and dt < 180 and km / (dt / 3600) > 4), 0) as fahrzeit_s,
-        max(geschwindigkeit_kmh) filter (where geschwindigkeit_kmh < 300) as max_kmh
+        max(geschwindigkeit_kmh) filter (where geschwindigkeit_kmh < 300) as max_kmh,
+        max(hoehe_m) as hoehe_max
       from d group by tag
+    ),
+    gx as (
+      select tag, start, ende, km, fahrzeit_s, max_kmh, anstieg_m, hoehe_max, linie
+      from privat.tour_gpx where geraet_id = ${g.id} and tag >= ${ab}::date
     ),
     fotos as (
       select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, count(*) as anzahl,
@@ -307,15 +333,19 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
       where rn <= 2
       group by tag
     ),
-    tage as (select tag from strecke union select tag from fotos union select tag from kom)
-    select t.tag::text as datum, row_number() over (order by t.tag)::int as nr, s.start, s.ende,
-           coalesce(l.punkte, '[]'::json) as linie, tf.id as titelfoto, coalesce(zi.liste, '[]'::json) as zitate,
-           round(coalesce(s.km, 0)::numeric, 2)::float8 as km, coalesce(s.fahrzeit_s, 0)::int as fahrzeit_s,
-           round(s.max_kmh::numeric)::int as max_kmh,
+    tage as (select tag from strecke union select tag from fotos union select tag from kom union select tag from gx)
+    select t.tag::text as datum, row_number() over (order by t.tag)::int as nr,
+           coalesce(gx.start, s.start) as start, coalesce(gx.ende, s.ende) as ende,
+           coalesce(gx.linie, l.punkte::jsonb, '[]'::jsonb) as linie, tf.id as titelfoto, coalesce(zi.liste, '[]'::json) as zitate,
+           round(coalesce(gx.km, s.km, 0)::numeric, 2)::float8 as km, coalesce(gx.fahrzeit_s, s.fahrzeit_s, 0)::int as fahrzeit_s,
+           round(coalesce(gx.max_kmh, s.max_kmh)::numeric)::int as max_kmh,
+           round(gx.anstieg_m::numeric)::int as anstieg_m, round(coalesce(gx.hoehe_max, s.hoehe_max)::numeric)::int as hoehe_max,
+           (gx.tag is not null) as gpx,
            coalesce(f.anzahl, 0)::int as fotos, coalesce(f.ids, '{}') as foto_ids, coalesce(k.anzahl, 0)::int as kommentare
     from tage t
     left join strecke s using (tag) left join fotos f using (tag) left join kom k using (tag)
     left join linie l using (tag) left join titelfoto tf using (tag) left join zitate zi using (tag)
+    left join gx using (tag)
     order by t.tag`;
   return json({
     titel: g.titel,
@@ -461,6 +491,66 @@ async function reaktionUmschalten(req: Request, url: URL) {
   return json({ ok: true, aktiv: !geloescht.length });
 }
 
+const MAX_GPX = 25 * 1024 * 1024;
+
+async function gpxHochladen(req: Request, url: URL) {
+  const [geraet] = await sql`
+    select id, zeitzone from privat.tour_geraete where sende_token = ${url.searchParams.get("id")}`;
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+
+  let text = "", name: string | null = null;
+  const typ = req.headers.get("content-type") ?? "";
+  if (typ.includes("multipart/form-data")) {
+    const form = await req.formData();
+    const datei = form.get("datei");
+    if (!(datei instanceof File)) return json({ fehler: "Datei fehlt" }, 400);
+    if (datei.size > MAX_GPX) return json({ fehler: "Datei zu groß" }, 413);
+    text = await datei.text();
+    name = datei.name ? datei.name.replace(/\.gpx$/i, "") : null;
+  } else {
+    text = await req.text();
+    if (text.length > MAX_GPX) return json({ fehler: "Datei zu groß" }, 413);
+  }
+  if (!/<gpx[\s>]/i.test(text)) return json({ fehler: "Das ist keine GPX-Datei" }, 415);
+
+  const alle = gpxLesen(text);
+  if (alle.length < 10) return json({ fehler: "Keine Strecke mit Zeitangaben in der Datei gefunden" }, 422);
+  tempoSetzen(alle);
+  const werte = auswerten(alle);
+  const duenn = ausduennen(alle, 3);
+  {   // Name der Strecke aus der Datei bevorzugen, sonst Dateiname
+    const m = /<trk>[\s\S]*?<name>([^<]{1,200})<\/name>/.exec(text) || /<name>([^<]{1,200})<\/name>/.exec(text);
+    if (m) name = m[1].trim();
+  }
+
+  // Tag der Reise = Kalendertag des ersten Punkts in der Zeitzone der Reise
+  const [{ tag }] = await sql`select ((${werte.start}::timestamptz) at time zone ${geraet.zeitzone})::date::text as tag`;
+
+  const id = await sql.begin(async (tx) => {
+    await tx`delete from privat.tour_gpx where geraet_id = ${geraet.id} and tag = ${tag}::date`;
+    const [neu] = await tx`
+      insert into privat.tour_gpx (geraet_id, tag, name, punkte_original, start, ende, km, fahrzeit_s, max_kmh,
+                                   anstieg_m, abstieg_m, hoehe_max, hoehe_max_lat, hoehe_max_lng, linie)
+      values (${geraet.id}, ${tag}::date, ${name}, ${alle.length}, ${werte.start}, ${werte.ende}, ${werte.km}, ${werte.fahrzeit_s},
+              ${werte.max_kmh}, ${werte.anstieg_m}, ${werte.abstieg_m}, ${werte.hoehe_max}, ${werte.hoehe_max_lat},
+              ${werte.hoehe_max_lng}, ${JSON.stringify(miniLinie(duenn))}::jsonb)
+      returning id`;
+    const zeilen = duenn.map((q, i) => ({
+      gpx_id: neu.id, nr: i, t: new Date(q.t), lat: q.lat, lng: q.lng, hoehe: q.hoehe, kmh: q.kmh,
+    }));
+    for (let i = 0; i < zeilen.length; i += 2000) {
+      await tx`insert into privat.tour_gpx_punkte ${tx(zeilen.slice(i, i + 2000), "gpx_id", "nr", "t", "lat", "lng", "hoehe", "kmh")}`;
+    }
+    return Number(neu.id);
+  });
+
+  return json({
+    ok: true, id, tag, name, punkte_original: alle.length, punkte_gespeichert: duenn.length,
+    km: werte.km, fahrzeit_s: werte.fahrzeit_s, max_kmh: werte.max_kmh, anstieg_m: werte.anstieg_m,
+    hoehe_max: werte.hoehe_max, start: werte.start, ende: werte.ende,
+  });
+}
+
 const MAX_BILD = 6 * 1024 * 1024;
 
 async function fotoHochladen(req: Request, url: URL) {
@@ -530,6 +620,7 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && url.searchParams.has("ansicht") && url.searchParams.has("foto")) return await fotoLiefern(url);
     if (req.method === "GET" && url.searchParams.has("ansicht")) return await ansehen(url);
     if (req.method === "POST" && url.searchParams.has("foto")) return await fotoHochladen(req, url);
+    if (req.method === "POST" && url.searchParams.has("gpx")) return await gpxHochladen(req, url);
     if (req.method === "POST" && url.searchParams.has("kommentar")) return await kommentarSchreiben(req, url);
     if (req.method === "POST" && url.searchParams.has("reaktion")) return await reaktionUmschalten(req, url);
     if (req.method === "GET" && url.searchParams.has("kommentare") && url.searchParams.has("id")) return await kommentareFuerFahrer(url);

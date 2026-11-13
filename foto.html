@@ -103,6 +103,13 @@
 
   <ul id="liste"></ul>
 
+  <h2>🗺️ Strecke aus Calimoto</h2>
+  <p class="leise" style="margin-bottom:10px">Nach der Tour in Calimoto die Aufzeichnung als GPX exportieren und hier hochladen.
+    Das Reisebuch zeigt den Tag dann mit der exakten Strecke, allen Kurven und Höhenmetern.</p>
+  <button class="knopf zwei" id="gpx-knopf" type="button">📂 GPX-Datei wählen</button>
+  <input id="in-gpx" type="file">
+  <p id="gpx-status" aria-live="polite" class="leise" style="margin-top:4px"></p>
+
   <h2 id="k-titel">💬 Kommentare</h2>
   <div id="k-liste"></div>
   <form class="k-zeile" id="k-form" autocomplete="off">
@@ -191,6 +198,36 @@
     } catch (err) { alert("Keine Verbindung, bitte nochmal versuchen."); }
     finally { $("k-text").disabled = false; }
   };
+  // ---------- GPX-Strecke aus Calimoto ----------
+  $("gpx-knopf").onclick = () => $("in-gpx").click();
+  $("in-gpx").onchange = async (e) => {
+    const datei = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!datei) return;
+    const status = $("gpx-status");
+    if (!/\.gpx$/i.test(datei.name) && !/gpx|xml/i.test(datei.type)) { status.textContent = "⚠️ Bitte eine .gpx-Datei wählen."; return; }
+    $("gpx-knopf").disabled = true;
+    status.textContent = "wird hochgeladen … (" + Math.round(datei.size / 1024) + " KB)";
+    let d = null;
+    for (let versuch = 1; versuch <= 3 && !d; versuch++) {
+      try {
+        const fd = new FormData();
+        fd.append("datei", datei, datei.name);
+        const r = await fetch(API + "?gpx=1&id=" + encodeURIComponent(token), { method: "POST", body: fd });
+        const j = await r.json().catch(() => ({}));
+        if (r.ok) d = j;
+        else if (r.status < 500) { status.textContent = "⚠️ " + (j.fehler || "Hochladen fehlgeschlagen"); break; }
+      } catch (err) {}
+      if (!d && versuch < 3) { status.textContent = "neuer Versuch …"; await new Promise((ok) => setTimeout(ok, 3000 * versuch)); }
+    }
+    $("gpx-knopf").disabled = false;
+    if (!d) { if (!status.textContent.startsWith("⚠️")) status.textContent = "⚠️ Keine Verbindung – bitte nochmal versuchen."; return; }
+    const tag = new Date(d.tag + "T12:00:00").toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" });
+    const std = Math.floor(d.fahrzeit_s / 3600), min = Math.round((d.fahrzeit_s % 3600) / 60);
+    status.textContent = "✓ " + tag + ": " + d.km.toFixed(1).replace(".", ",") + " km · " + std + " h " + String(min).padStart(2, "0")
+      + " Fahrzeit · ⛰️ " + Math.round(d.anstieg_m).toLocaleString("de-DE") + " Hm · max. " + d.max_kmh + " km/h";
+  };
+
   // ---------- Schnellmeldungen ----------
   for (const b of document.querySelectorAll("#meldungen button")) {
     b.onclick = async () => {

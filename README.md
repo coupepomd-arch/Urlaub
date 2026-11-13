@@ -58,6 +58,14 @@ Startbildschirm hinzufügen). Fotos werden vor dem Hochladen verkleinert (max. 1
 der Standort des Handys beim Hochladen. Fotos dürfen bis zu 60 Tage alt sein. Die hochgeladenen,
 verkleinerten Bilder enthalten keine EXIF-Daten mehr.
 
+## Strecke aus Calimoto (GPX)
+
+Auf der Fahrer-Seite unter „🗺️ Strecke aus Calimoto“ eine GPX-Datei hochladen. Die Funktion liest alle Trackpunkte,
+berechnet Kilometer, Fahrzeit, Höchsttempo (über 10 Sekunden geglättet), Höhenmeter und den höchsten Punkt und dünnt
+die Strecke formtreu aus (Douglas-Peucker, 3 m Toleranz; Code in `supabase/functions/motorrad-tour/gpx.ts`).
+Gespeichert in `privat.tour_gpx` und `privat.tour_gpx_punkte`. Rückblick, Replay und Reisebuch zeigen für diesen Tag
+dann die GPX-Strecke; die Live-Punkte bleiben unverändert erhalten. Ein neuer Upload für denselben Tag ersetzt den alten.
+
 ## Kommentare
 
 Jeder mit dem Live-Link kann unter Angabe eines Namens kommentieren, auch direkt zu einem Foto.

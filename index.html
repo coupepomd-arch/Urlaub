@@ -56,7 +56,6 @@
   @media (prefers-color-scheme: dark) {
     .kacheln-strasse { filter: invert(1) hue-rotate(180deg) brightness(.9) contrast(.9); }
   }
-  .leaflet-overlay-pane path { filter: drop-shadow(0 0 1.5px rgba(0,0,0,.9)); }
   .leaflet-top.leaflet-right { top: max(56px, calc(env(safe-area-inset-top) + 46px)); }
 
   /* ---------- Kopf auf der Karte ---------- */
@@ -96,6 +95,8 @@
   .foto-pin { width: 46px; height: 46px; border-radius: 10px; border: 3px solid #fff; overflow: hidden;
     box-shadow: 0 2px 8px rgba(0,0,0,.5); background: #ddd; }
   .foto-pin img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .gipfel-pin { background: var(--karte); color: var(--text); border-radius: 10px; padding: 3px 8px; font-size: 12px; font-weight: 700;
+    white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.35); border: 2px solid var(--meer); transform: translate(-50%, -130%); display: inline-block; }
   .meldung-pin { width: 34px; height: 34px; border-radius: 50% 50% 50% 4px; background: var(--karte); border: 2px solid var(--lava);
     display: grid; place-items: center; font-size: 17px; box-shadow: 0 2px 6px rgba(0,0,0,.35); }
 
@@ -218,6 +219,7 @@
   #buch h1 { font-size: 28px; margin: 0; letter-spacing: -.5px; }
   #buch header small { color: var(--leise); text-transform: uppercase; letter-spacing: .4px; font-size: 12px; font-weight: 600; }
   #buch .zu { border: 0; border-radius: 50%; width: 44px; height: 44px; font-size: 20px; background: var(--karte); cursor: pointer; box-shadow: var(--schatten); }
+  .seite .titelbild .ueber em { font-style: normal; font-size: 12px; background: rgba(255,255,255,.22); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
   #buch-summe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
   #buch-summe div { background: var(--karte); border-radius: 14px; padding: 12px; }
   #buch-summe b { display: block; font-size: 22px; letter-spacing: -.3px; }
@@ -428,6 +430,8 @@
   try { const t = new URLSearchParams(location.search).get("tag"); if (/^\d{4}-\d{2}-\d{2}$/.test(t || "")) tag = t; } catch (e) {}
   const istHeute = () => !tag || tag === heute;
   let replayAktiv = false;
+  let gpxInfo = null;          // hochgeladene Calimoto-Strecke für den angezeigten Tag
+  const gipfelGruppe = L.layerGroup().addTo(karte);
 
   // ---------- Hilfsfunktionen ----------
   const rad = (g) => g * Math.PI / 180;
@@ -510,10 +514,28 @@
     gruppe.clearLayers();
     const gut = liste.filter(brauchbar);
     if (gut.length < 2) return;
-    const stil = (f) => ({ color: blass ? "#ffffff" : f, weight: blass ? 4 : 5, opacity: blass ? .35 : .92 });
-    let seg = [[gut[0].lat, gut[0].lng]], segFarbe = farbe(gut[1].kmh);
+    const stil = (f) => ({ color: blass ? "#ffffff" : f, weight: blass ? 4 : 5, opacity: blass ? .35 : 1, interactive: false });
+    // Eine durchgehende dunkle Umrandung unter der ganzen Strecke, damit sie auf jeder Karte gut sichtbar ist
+    if (!blass) {
+      let abschnitt = [[gut[0].lat, gut[0].lng]];
+      for (let i = 1; i < gut.length; i++) {
+        if (zeit(gut[i]) - zeit(gut[i - 1]) > 5 * 60000) {
+          if (abschnitt.length > 1) L.polyline(abschnitt, { color: "#1d1714", weight: 8, opacity: .55, interactive: false }).addTo(gruppe);
+          abschnitt = [];
+        }
+        abschnitt.push([gut[i].lat, gut[i].lng]);
+      }
+      if (abschnitt.length > 1) L.polyline(abschnitt, { color: "#1d1714", weight: 8, opacity: .55, interactive: false }).addTo(gruppe);
+    }
+    // Farbe nach geglättetem Tempo (Mittel über die Nachbarpunkte), damit sie in Kurven nicht ständig springt
+    const glatt = gut.map((_, i) => {
+      let s = 0, n = 0;
+      for (let j = Math.max(0, i - 4); j <= Math.min(gut.length - 1, i + 4); j++) if (gut[j].kmh != null) { s += gut[j].kmh; n++; }
+      return n ? s / n : null;
+    });
+    let seg = [[gut[0].lat, gut[0].lng]], segFarbe = farbe(glatt[1]);
     for (let i = 1; i < gut.length; i++) {
-      const f = farbe(gut[i].kmh), p = [gut[i].lat, gut[i].lng];
+      const f = farbe(glatt[i]), p = [gut[i].lat, gut[i].lng];
       if (zeit(gut[i]) - zeit(gut[i - 1]) > 5 * 60000) {
         L.polyline(seg, stil(segFarbe)).addTo(gruppe);
         L.polyline([seg[seg.length - 1], p], { color: "#8892a0", weight: 3, dashArray: "6 8" }).addTo(gruppe);
@@ -591,7 +613,7 @@
   // ---------- Anzeige ----------
   function beschriftung(rueckblick) {
     $("w-hoehe").nextElementSibling.textContent = rueckblick ? "höchster Punkt" : "Höhe";
-    $("w-akku").nextElementSibling.textContent = rueckblick ? "Akku am Ende" : "Handy-Akku";
+    $("w-akku").nextElementSibling.textContent = gpxInfo ? "Höhenmeter ↗" : (rueckblick ? "Akku am Ende" : "Handy-Akku");
   }
   function werteLeeren() {
     for (const id of ["w-km", "w-fahrzeit", "w-schnitt", "w-max", "w-hoehe", "w-akku"]) $(id).textContent = "–";
@@ -600,8 +622,8 @@
 
   function anzeigen() {
     tagleisteZeichnen();
-    beschriftung(!istHeute());
-    $("folgen").hidden = !istHeute();
+    beschriftung(!istHeute() || !!gpxInfo);
+    $("folgen").hidden = !istHeute() || !!gpxInfo;
     $("replay-knopf").hidden = punkte.length < 2;
     if (replayAktiv) return;
     fotosZeichnen();
@@ -618,7 +640,7 @@
       }
       return;
     }
-    if (!istHeute()) { rueckblickAnzeigen(); return; }
+    if (!istHeute() || gpxInfo) { rueckblickAnzeigen(); return; }
 
     const letzter = punkte[punkte.length - 1];
     const alterMs = Date.now() - zeit(letzter);
@@ -662,21 +684,32 @@
     else if (folgen) karte.panTo([letzter.lat, letzter.lng], { animate: true });
   }
 
+  const tausender = (n) => Math.round(n).toLocaleString("de-DE");
   function rueckblickAnzeigen() {
     const a = auswerten();
     const erster = punkte[0], letzter = punkte[punkte.length - 1];
+    // Mit Calimoto-Strecke gelten deren genaue Werte
+    const g = gpxInfo;
+    const km = g ? g.km : a.km, fahrMs = g ? g.fahrzeit_s * 1000 : a.fahrMs, max = g ? g.max_kmh : a.max;
     $("status").className = "pille";
-    $("statustext").innerHTML = "📖 Rückblick <small>· " + uhr(erster.t) + "–" + uhr(letzter.t) + " Uhr</small>";
+    $("statustext").innerHTML = (istHeute() ? "🏁 Tour beendet" : "📖 Rückblick") + " <small>· " + uhr(erster.t) + "–" + uhr(letzter.t) + " Uhr</small>";
     $("umgebung").hidden = true;
-    grossModus(true, a.km);
-    $("ort").textContent = "unterwegs von " + uhr(erster.t) + " bis " + uhr(letzter.t) + " Uhr";
-    $("w-km").textContent = kmText(a.km);
-    $("w-fahrzeit").textContent = dauerText(a.fahrMs);
-    $("w-schnitt").textContent = a.schnitt ? Math.round(a.schnitt) : "–";
-    $("w-max").textContent = a.max >= 1 ? Math.round(a.max) : "–";
+    grossModus(true, km);
+    $("ort").textContent = "unterwegs von " + uhr(erster.t) + " bis " + uhr(letzter.t) + " Uhr"
+      + (g ? " · Strecke von Calimoto" + (g.anstieg_m ? " · ⛰️ " + tausender(g.anstieg_m) + " Höhenmeter" : "") : "");
+    $("w-km").textContent = kmText(km);
+    $("w-fahrzeit").textContent = dauerText(fahrMs);
+    $("w-schnitt").textContent = fahrMs > 60000 ? Math.round(km / (fahrMs / 3600000)) : "–";
+    $("w-max").textContent = max >= 1 ? Math.round(max) : "–";
     const hoehen = punkte.map((p) => p.hoehe).filter((x) => x != null);
-    $("w-hoehe").textContent = hoehen.length ? Math.round(Math.max(...hoehen)) + " m" : "–";
-    $("w-akku").textContent = letzter.akku != null ? Math.round(letzter.akku) + " %" : "–";
+    const hoechste = g && g.hoehe_max != null ? g.hoehe_max : (hoehen.length ? Math.max(...hoehen) : null);
+    $("w-hoehe").textContent = hoechste != null ? tausender(hoechste) + " m" : "–";
+    $("w-akku").textContent = g ? (g.anstieg_m ? tausender(g.anstieg_m) + " m" : "–") : (letzter.akku != null ? Math.round(letzter.akku) + " %" : "–");
+    gipfelGruppe.clearLayers();
+    if (g && g.hoehe_max_lat != null) {
+      L.marker([g.hoehe_max_lat, g.hoehe_max_lng], { icon: L.divIcon({ className: "", html: '<div class="gipfel-pin">🗻 ' + tausender(g.hoehe_max) + " m</div>", iconSize: [0, 0] }), zIndexOffset: 300 })
+        .addTo(gipfelGruppe).bindTooltip("Höchster Punkt des Tages");
+    }
     $("gmaps").href = "https://www.google.com/maps/search/?api=1&query=" + letzter.lat + "," + letzter.lng;
     streckeZeichnen();
     startSetzen();
@@ -770,7 +803,8 @@
   function neuLaden() {
     alle = []; punkte = []; fotos = []; kommentare = []; reaktionen = {}; reaktionenText = "";
     cursor = null; fotoCursor = 0; kCursor = 0;
-    streckenGruppe.clearLayers(); fotoGruppe.clearLayers(); meldungGruppe.clearLayers();
+    streckenGruppe.clearLayers(); fotoGruppe.clearLayers(); meldungGruppe.clearLayers(); gipfelGruppe.clearLayers();
+    gpxInfo = null;
     for (const id in fotoMarker) delete fotoMarker[id];
     for (const id in meldungMarker) delete meldungMarker[id];
     if (motoMarker) { karte.removeLayer(motoMarker); motoMarker = null; }
@@ -824,13 +858,17 @@
   }
   function buchZeichnen() {
     const summe = tage.reduce((s, t) => ({ km: s.km + t.km, fz: s.fz + t.fahrzeit_s, fotos: s.fotos + t.fotos, k: s.k + t.kommentare,
-      max: Math.max(s.max, t.max_kmh || 0) }), { km: 0, fz: 0, fotos: 0, k: 0, max: 0 });
+      max: Math.max(s.max, t.max_kmh || 0), hm: s.hm + (t.anstieg_m || 0), hoch: Math.max(s.hoch, t.hoehe_max || 0) }),
+      { km: 0, fz: 0, fotos: 0, k: 0, max: 0, hm: 0, hoch: 0 });
     const kachel = (wert, text) => { const d = el("div"); d.append(el("b", null, wert), el("small", null, text)); return d; };
     $("buch-summe").replaceChildren(
       kachel(tage.length, tage.length === 1 ? "Tag" : "Tage"),
       kachel(Math.round(summe.km).toLocaleString("de-DE") + " km", "gefahren"),
       kachel(dauerText(summe.fz * 1000), "Fahrzeit"),
+      kachel(summe.hm ? tausender(summe.hm) + " m" : "–", "Höhenmeter ↗"),
+      kachel(summe.hoch ? tausender(summe.hoch) + " m" : "–", "höchster Punkt"),
       kachel(summe.max ? summe.max : "–", "max. km/h"),
+      kachel(summe.fz > 60 ? Math.round(summe.km / (summe.fz / 3600)) : "–", "Ø km/h"),
       kachel(summe.fotos, "Fotos"),
       kachel(summe.k, "Kommentare"));
     const liste = $("buch-tage");
@@ -842,7 +880,9 @@
       const tb = el("div", "titelbild");
       if (t.titelfoto) { const img = el("img"); img.alt = ""; img.loading = "lazy"; img.src = fotoUrl(t.titelfoto, false); tb.appendChild(img); }
       const ueber = el("div", "ueber");
-      ueber.append(el("b", null, "Tag " + t.nr), el("span", null, datumText(t.datum, true) + (t.datum === heute ? " · heute" : "")));
+      const unterzeile = el("span", null, datumText(t.datum, true) + (t.datum === heute ? " · heute" : ""));
+      if (t.gpx) unterzeile.appendChild(el("em", null, "📍 Calimoto"));
+      ueber.append(el("b", null, "Tag " + t.nr), unterzeile);
       tb.appendChild(ueber);
       s.appendChild(tb);
       const k = el("div", "koerper");
@@ -852,6 +892,8 @@
       z.append(zahl(t.km > 0.05 ? kmText(t.km) : "–", "gefahren"), zahl(t.fahrzeit_s > 60 ? dauerText(t.fahrzeit_s * 1000) : "–", "Fahrzeit"),
         zahl(t.max_kmh ? t.max_kmh + " km/h" : "–", "Höchsttempo"),
         zahl(t.start ? uhr(t.start) + "–" + uhr(t.ende) : "–", "unterwegs"));
+      if (t.anstieg_m || t.hoehe_max) z.append(zahl(t.anstieg_m ? tausender(t.anstieg_m) + " m" : "–", "Höhenmeter ↗"),
+        zahl(t.hoehe_max ? tausender(t.hoehe_max) + " m" : "–", "höchster Punkt"));
       k.appendChild(z);
       s.appendChild(k);
       for (const zi of t.zitate || []) {
@@ -1251,6 +1293,11 @@
       if (altHeute && altHeute !== heute) {   // Mitternacht
         tageLaden();
         if (!tag) { neuLaden(); return; }
+      }
+      if (d.gpx && !gpxInfo) {
+        // Calimoto-Strecke wurde (neu) hochgeladen: Live-Punkte des Tages durch die GPX-Punkte ersetzen
+        gpxInfo = d.gpx;
+        if (d.positionen.length) { alle = []; punkte = []; ersteAnsicht = true; }
       }
       if (d.positionen.length) {
         const bekannt = new Set(alle.map((p) => p.t));
