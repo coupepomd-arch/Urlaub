@@ -74,6 +74,8 @@ Kommentar ausblenden: `update privat.tour_kommentare set tag = date '2000-01-01'
   (`manifest.webmanifest`, `fahrer.webmanifest`, Bilder in `bilder/`). Der Schlüssel wird beim ersten Öffnen
   im Browser gespeichert.
 - Reisetitel: `update privat.tour_geraete set titel = '…' where id = 1;`
+- Fahrername für Antworten und Meldungen von der Fahrer-Seite: `update privat.tour_geraete set fahrer_name = '…' where id = 1;`
+  (ein Trigger `privat.fahrer_name_setzen` setzt ihn beim Speichern ein)
 
 ## Neue Schlüssel erzeugen (falls ein Link weitergegeben wurde)
 
