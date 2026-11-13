@@ -533,7 +533,7 @@ async function gpxHochladen(req: Request, url: URL) {
                                    anstieg_m, abstieg_m, hoehe_max, hoehe_max_lat, hoehe_max_lng, linie)
       values (${geraet.id}, ${tag}::date, ${name}, ${alle.length}, ${werte.start}, ${werte.ende}, ${werte.km}, ${werte.fahrzeit_s},
               ${werte.max_kmh}, ${werte.anstieg_m}, ${werte.abstieg_m}, ${werte.hoehe_max}, ${werte.hoehe_max_lat},
-              ${werte.hoehe_max_lng}, ${JSON.stringify(miniLinie(duenn))}::jsonb)
+              ${werte.hoehe_max_lng}, ${sql.json(miniLinie(duenn))})
       returning id`;
     const zeilen = duenn.map((q, i) => ({
       gpx_id: neu.id, nr: i, t: new Date(q.t), lat: q.lat, lng: q.lng, hoehe: q.hoehe, kmh: q.kmh,
