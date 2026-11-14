@@ -15,6 +15,8 @@
 // GPX-Strecke hochladen:     POST .../motorrad-tour?id=<SENDE_TOKEN>&gpx=1  (multipart: datei, oder die GPX-Datei als Rohtext)
 //                            Innerhalb der GPX-Zeitfenster gilt die GPX-Strecke, davor/danach füllen Live-Punkte auf.
 //                            Mehrere Dateien pro Tag werden kombiniert; eine Datei mit überlappender Zeit ersetzt die alte.
+// GPX-Dateien auflisten:     GET  .../motorrad-tour?id=<SENDE_TOKEN>&gpx_liste=1
+// GPX-Datei entfernen:       POST .../motorrad-tour?id=<SENDE_TOKEN>&gpx_entfernen=1  JSON {id}   (Live-Daten bleiben erhalten)
 import postgres from "npm:postgres@3.4.5";
 import { ausduennen, auswerten, type Fenster, gpxLesen, imFenster, liveAuswerten, miniLinie, tempoSetzen } from "./gpx.ts";
 
@@ -603,6 +605,27 @@ async function gpxHochladen(req: Request, url: URL) {
   });
 }
 
+async function gpxListe(url: URL) {
+  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${url.searchParams.get("id")}`;
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+  const teile = await sql`
+    select id, tag::text as tag, name, km, fahrzeit_s, anstieg_m, punkte_original, start, ende, hochgeladen_am
+    from privat.tour_gpx where geraet_id = ${geraet.id} order by tag desc, start`;
+  return json({ teile: teile.map((x) => ({ ...x, id: Number(x.id) })) });
+}
+
+async function gpxEntfernen(req: Request, url: URL) {
+  const [geraet] = await sql`select id from privat.tour_geraete where sende_token = ${url.searchParams.get("id")}`;
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+  let body: any;
+  try { body = await req.json(); } catch { return json({ fehler: "ungültige Daten" }, 400); }
+  const id = Math.floor(Number(body?.id)) || 0;
+  // Nur die GPX-Strecke wird entfernt (ihre Punkte per Fremdschlüssel mit). Die Live-Punkte bleiben unberührt.
+  const weg = await sql`delete from privat.tour_gpx where id = ${id} and geraet_id = ${geraet.id} returning id, tag::text as tag`;
+  if (!weg.length) return json({ fehler: "nicht gefunden" }, 404);
+  return json({ ok: true, id, tag: weg[0].tag });
+}
+
 const MAX_BILD = 6 * 1024 * 1024;
 
 async function fotoHochladen(req: Request, url: URL) {
@@ -673,6 +696,8 @@ Deno.serve(async (req) => {
     if (req.method === "GET" && url.searchParams.has("ansicht")) return await ansehen(url);
     if (req.method === "POST" && url.searchParams.has("foto")) return await fotoHochladen(req, url);
     if (req.method === "POST" && url.searchParams.has("gpx")) return await gpxHochladen(req, url);
+    if (req.method === "POST" && url.searchParams.has("gpx_entfernen")) return await gpxEntfernen(req, url);
+    if (req.method === "GET" && url.searchParams.has("gpx_liste") && url.searchParams.has("id")) return await gpxListe(url);
     if (req.method === "POST" && url.searchParams.has("kommentar")) return await kommentarSchreiben(req, url);
     if (req.method === "POST" && url.searchParams.has("reaktion")) return await reaktionUmschalten(req, url);
     if (req.method === "GET" && url.searchParams.has("kommentare") && url.searchParams.has("id")) return await kommentareFuerFahrer(url);

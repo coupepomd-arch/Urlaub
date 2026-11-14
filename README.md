@@ -67,6 +67,8 @@ Gespeichert in `privat.tour_gpx` und `privat.tour_gpx_punkte`. Rückblick, Repla
 innerhalb der GPX-Zeitfenster die GPX-Strecke, davor und danach die Live-Punkte (z. B. wenn der Calimoto-Akku leer war).
 Kilometer und Fahrzeit = GPX-Teile + Live-Rest. Mehrere GPX-Dateien pro Tag werden kombiniert; eine Datei, die zeitlich
 mit einem vorhandenen Teil überlappt, ersetzt diesen. Die Live-Punkte bleiben unverändert erhalten.
+Unter dem Upload-Knopf listet die Fahrer-Seite alle hochgeladenen Strecken; „🗑️ Entfernen“ löscht nur die GPX-Strecke
+(`privat.tour_gpx` samt Punkten), danach zeigt der Tag wieder die Live-Daten.
 
 ## Kommentare
 

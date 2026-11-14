@@ -69,6 +69,13 @@
   .k-zeile { display: flex; gap: 8px; margin-top: 10px; }
   .k-zeile input { flex: 1; min-width: 0; border: 1px solid var(--linie); border-radius: 12px; padding: 12px; font: inherit; background: var(--karte); color: var(--text); }
   .k-zeile button { border: 0; border-radius: 12px; padding: 0 16px; font: inherit; font-weight: 600; background: var(--akzent); color: #fff; }
+  #gpx-liste { display: grid; gap: 8px; margin-top: 6px; }
+  .gpx-teil { display: flex; align-items: center; gap: 10px; background: var(--karte); border-radius: 12px; padding: 10px 12px; }
+  .gpx-teil div { flex: 1; min-width: 0; }
+  .gpx-teil b { display: block; font-size: 15px; }
+  .gpx-teil small { color: var(--leise); font-size: 13px; }
+  .gpx-teil button { flex: none; border: 0; border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 14px; font-weight: 600;
+    background: var(--bg); color: var(--rot); cursor: pointer; }
   #meldung { display: none; text-align: center; padding: 60px 10px; }
 </style>
 </head>
@@ -109,6 +116,7 @@
   <button class="knopf zwei" id="gpx-knopf" type="button">📂 GPX-Datei wählen</button>
   <input id="in-gpx" type="file">
   <p id="gpx-status" aria-live="polite" class="leise" style="margin-top:4px"></p>
+  <div id="gpx-liste"></div>
 
   <h2 id="k-titel">💬 Kommentare</h2>
   <div id="k-liste"></div>
@@ -226,7 +234,52 @@
     const std = Math.floor(d.fahrzeit_s / 3600), min = Math.round((d.fahrzeit_s % 3600) / 60);
     status.textContent = "✓ " + tag + ": " + d.km.toFixed(1).replace(".", ",") + " km · " + std + " h " + String(min).padStart(2, "0")
       + " Fahrzeit · ⛰️ " + Math.round(d.anstieg_m).toLocaleString("de-DE") + " Hm · max. " + d.max_kmh + " km/h";
+    gpxListeLaden();
   };
+
+  // Liste der hochgeladenen Calimoto-Strecken mit Entfernen-Knopf (Live-Daten bleiben dabei immer erhalten)
+  const tagText = (d) => new Date(d + "T12:00:00").toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" });
+  async function gpxListeLaden() {
+    try {
+      const r = await fetch(API + "?gpx_liste=1&id=" + encodeURIComponent(token), { cache: "no-store" });
+      if (!r.ok) return;
+      const { teile } = await r.json();
+      const liste = $("gpx-liste");
+      liste.textContent = "";
+      for (const t of teile) {
+        const zeile = document.createElement("div");
+        zeile.className = "gpx-teil";
+        const info = document.createElement("div");
+        const titel = document.createElement("b");
+        titel.textContent = "🗺️ " + tagText(t.tag) + " · " + uhr(t.start) + "–" + uhr(t.ende) + " Uhr";
+        const details = document.createElement("small");
+        const std = Math.floor(t.fahrzeit_s / 3600), min = Math.round((t.fahrzeit_s % 3600) / 60);
+        details.textContent = Number(t.km).toFixed(1).replace(".", ",") + " km · " + std + " h " + String(min).padStart(2, "0") + " Fahrzeit"
+          + (t.anstieg_m ? " · ⛰️ " + Math.round(t.anstieg_m).toLocaleString("de-DE") + " Hm" : "");
+        info.append(titel, details);
+        const knopf = document.createElement("button");
+        knopf.type = "button";
+        knopf.textContent = "🗑️ Entfernen";
+        knopf.onclick = async () => {
+          if (!confirm("Calimoto-Strecke vom " + tagText(t.tag) + " (" + uhr(t.start) + "–" + uhr(t.ende) + " Uhr) entfernen?\n\n"
+            + "Die Live-Daten bleiben erhalten – der Tag zeigt danach wieder die Live-Strecke.")) return;
+          knopf.disabled = true; knopf.textContent = "…";
+          try {
+            const r = await fetch(API + "?gpx_entfernen=1&id=" + encodeURIComponent(token), {
+              method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: t.id }) });
+            if (!r.ok) throw new Error();
+            $("gpx-status").textContent = "✓ Calimoto-Strecke vom " + tagText(t.tag) + " entfernt – der Tag zeigt wieder die Live-Daten.";
+          } catch (e) {
+            $("gpx-status").textContent = "⚠️ Entfernen fehlgeschlagen – bitte nochmal versuchen.";
+          }
+          gpxListeLaden();
+        };
+        zeile.append(info, knopf);
+        liste.appendChild(zeile);
+      }
+    } catch (e) {}
+  }
+  gpxListeLaden();
 
   // ---------- Schnellmeldungen ----------
   for (const b of document.querySelectorAll("#meldungen button")) {
