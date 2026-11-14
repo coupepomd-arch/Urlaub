@@ -64,7 +64,9 @@ Auf der Fahrer-Seite unter „🗺️ Strecke aus Calimoto“ eine GPX-Datei hoc
 berechnet Kilometer, Fahrzeit, Höchsttempo (über 10 Sekunden geglättet), Höhenmeter und den höchsten Punkt und dünnt
 die Strecke formtreu aus (Douglas-Peucker, 3 m Toleranz; Code in `supabase/functions/motorrad-tour/gpx.ts`).
 Gespeichert in `privat.tour_gpx` und `privat.tour_gpx_punkte`. Rückblick, Replay und Reisebuch zeigen für diesen Tag
-dann die GPX-Strecke; die Live-Punkte bleiben unverändert erhalten. Ein neuer Upload für denselben Tag ersetzt den alten.
+innerhalb der GPX-Zeitfenster die GPX-Strecke, davor und danach die Live-Punkte (z. B. wenn der Calimoto-Akku leer war).
+Kilometer und Fahrzeit = GPX-Teile + Live-Rest. Mehrere GPX-Dateien pro Tag werden kombiniert; eine Datei, die zeitlich
+mit einem vorhandenen Teil überlappt, ersetzt diesen. Die Live-Punkte bleiben unverändert erhalten.
 
 ## Kommentare
 

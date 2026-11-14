@@ -13,9 +13,10 @@
 // Schnellmeldung vom Fahrer: POST .../motorrad-tour?id=<SENDE_TOKEN>&kommentar=1  JSON {art, lat?, lng?}
 // Reaktion umschalten:       POST .../motorrad-tour?ansicht=<ANSICHT_TOKEN>&reaktion=1  JSON {ziel_typ, ziel_id, emoji, wer}
 // GPX-Strecke hochladen:     POST .../motorrad-tour?id=<SENDE_TOKEN>&gpx=1  (multipart: datei, oder die GPX-Datei als Rohtext)
-//                            Ersetzt für diesen Tag die Live-Strecke in Rückblick und Reisebuch; Live-Daten bleiben gespeichert.
+//                            Innerhalb der GPX-Zeitfenster gilt die GPX-Strecke, davor/danach füllen Live-Punkte auf.
+//                            Mehrere Dateien pro Tag werden kombiniert; eine Datei mit überlappender Zeit ersetzt die alte.
 import postgres from "npm:postgres@3.4.5";
-import { ausduennen, auswerten, gpxLesen, miniLinie, tempoSetzen } from "./gpx.ts";
+import { ausduennen, auswerten, type Fenster, gpxLesen, imFenster, liveAuswerten, miniLinie, tempoSetzen } from "./gpx.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false });
 
@@ -197,17 +198,49 @@ async function ansehen(url: URL) {
   const nummer = (name: string) => Math.max(0, Math.floor(Number(url.searchParams.get(name)) || 0));
   const seit = nummer("seit"), fotosSeit = nummer("fotos_seit"), kSeit = nummer("kommentare_seit");
 
-  // Gibt es für den Tag eine hochgeladene GPX-Strecke, ersetzt sie die Live-Punkte (einmalig vollständig geliefert).
-  const [gpx] = await sql`
+  // GPX-Teile des Tages: innerhalb ihrer Zeitfenster ersetzen sie die Live-Punkte, außerhalb bleiben die Live-Punkte.
+  const gpxTeile = await sql`
     select id, name, km, fahrzeit_s, max_kmh, anstieg_m, abstieg_m, hoehe_max, hoehe_max_lat, hoehe_max_lng, start, ende
-    from privat.tour_gpx where geraet_id = ${g.id} and tag = ${datum}::date`;
-  let rows: any[], cursorNeu: number;
-  if (gpx) {
-    rows = seit > 0 ? [] : (await sql`
+    from privat.tour_gpx where geraet_id = ${g.id} and tag = ${datum}::date order by start`;
+  let rows: any[], cursorNeu: number, gpxInfo: Record<string, unknown> | null = null;
+  if (gpxTeile.length) {
+    const fenster: Fenster[] = gpxTeile.map((x) => ({ start: x.start.getTime(), ende: x.ende.getTime() }));
+    const liveAlle = await sql`
+      select id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt
+      from privat.tour_positionen
+      where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis}
+      order by aufgenommen_am
+      limit 50000`;
+    const liveRest = liveAlle.filter((r) => !imFenster(r.aufgenommen_am.getTime(), fenster));
+    const gpxPunkte = seit > 0 ? [] : await sql`
       select t as aufgenommen_am, lat, lng, kmh as geschwindigkeit_kmh, hoehe as hoehe_m
-      from privat.tour_gpx_punkte where gpx_id = ${gpx.id} order by nr`);
+      from privat.tour_gpx_punkte where gpx_id in ${sql(gpxTeile.map((x) => x.id))} order by t`;
+    rows = seit > 0 ? liveRest.filter((r) => Number(r.id) > seit) : [...gpxPunkte, ...liveRest];
     const [{ max }] = await sql`select coalesce(max(id), 0)::bigint as max from privat.tour_positionen where geraet_id = ${g.id}`;
     cursorNeu = Math.max(1, seit, Number(max));
+
+    // Tageswerte: GPX-Teile + Live-Rest
+    const rest = liveAuswerten(liveRest.map((r) => ({
+      t: r.aufgenommen_am.getTime(), lat: r.lat, lng: r.lng, kmh: r.geschwindigkeit_kmh, hoehe: r.hoehe_m, genau: r.genauigkeit_m,
+    })), fenster);
+    const summe = (f: string) => gpxTeile.reduce((a, x) => a + (Number(x[f]) || 0), 0);
+    const hoechsterGpx = gpxTeile.reduce((m, x) => (x.hoehe_max != null && (m == null || x.hoehe_max > m.hoehe_max) ? x : m), null as any);
+    const hoch = rest.hoehe_max && (!hoechsterGpx || (rest.hoehe_max.hoehe as number) > hoechsterGpx.hoehe_max)
+      ? { h: rest.hoehe_max.hoehe, lat: rest.hoehe_max.lat, lng: rest.hoehe_max.lng }
+      : hoechsterGpx ? { h: hoechsterGpx.hoehe_max, lat: hoechsterGpx.hoehe_max_lat, lng: hoechsterGpx.hoehe_max_lng } : null;
+    const zeiten = [...gpxTeile.map((x) => x.start.getTime()), ...gpxTeile.map((x) => x.ende.getTime()),
+      ...liveRest.map((r) => r.aufgenommen_am.getTime())];
+    gpxInfo = {
+      name: gpxTeile.map((x) => x.name).filter(Boolean).join(" + ") || null,
+      teile: gpxTeile.length,
+      km: Math.round((summe("km") + rest.km) * 100) / 100,
+      live_km: Math.round(rest.km * 100) / 100,
+      fahrzeit_s: Math.round(summe("fahrzeit_s") + rest.fahrzeit_s),
+      max_kmh: Math.round(Math.max(rest.max_kmh, ...gpxTeile.map((x) => Number(x.max_kmh) || 0))),
+      anstieg_m: summe("anstieg_m"), abstieg_m: summe("abstieg_m"),
+      hoehe_max: hoch?.h ?? null, hoehe_max_lat: hoch?.lat ?? null, hoehe_max_lng: hoch?.lng ?? null,
+      start: new Date(Math.min(...zeiten)), ende: new Date(Math.max(...zeiten)),
+    };
   } else {
     rows = await sql`
       select id, aufgenommen_am, lat, lng, geschwindigkeit_kmh, richtung, hoehe_m, genauigkeit_m, akku_prozent, laedt
@@ -248,10 +281,7 @@ async function ansehen(url: URL) {
     kommentare,
     fotos_cursor: fotos.length ? Number(fotos[fotos.length - 1].id) : fotosSeit,
     fotos: fotos.map((f) => ({ id: Number(f.id), t: f.aufgenommen_am, lat: f.lat, lng: f.lng, titel: f.titel })),
-    gpx: gpx ? {
-      name: gpx.name, km: gpx.km, fahrzeit_s: gpx.fahrzeit_s, max_kmh: gpx.max_kmh, anstieg_m: gpx.anstieg_m, abstieg_m: gpx.abstieg_m,
-      hoehe_max: gpx.hoehe_max, hoehe_max_lat: gpx.hoehe_max_lat, hoehe_max_lng: gpx.hoehe_max_lng, start: gpx.start, ende: gpx.ende,
-    } : null,
+    gpx: gpxInfo,
     cursor: cursorNeu,
     positionen: rows.map((r) => ({
       t: r.aufgenommen_am,
@@ -271,18 +301,25 @@ async function ansehen(url: URL) {
 async function tageListe(g: { id: number; zeitzone: string; reise_start: string | null; heute: string; titel: string }) {
   const ab = g.reise_start ?? "1970-01-01";
   const rows = await sql`
-    with p as (
-      select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, aufgenommen_am, lat, lng, geschwindigkeit_kmh, hoehe_m,
-             lag(lat) over w as plat, lag(lng) over w as plng, lag(aufgenommen_am) over w as pt
-      from privat.tour_positionen
-      where geraet_id = ${g.id} and (genauigkeit_m is null or genauigkeit_m <= 60)
-        and aufgenommen_am >= (${ab}::date::timestamp at time zone ${g.zeitzone})
-      window w as (partition by (aufgenommen_am at time zone ${g.zeitzone})::date order by aufgenommen_am)
+    with p0 as (   -- Live-Punkte; in_gpx = liegt im Zeitfenster eines hochgeladenen GPX-Teils
+      select (t.aufgenommen_am at time zone ${g.zeitzone})::date as tag, t.aufgenommen_am, t.lat, t.lng, t.geschwindigkeit_kmh, t.hoehe_m,
+             exists (select 1 from privat.tour_gpx gw where gw.geraet_id = ${g.id}
+                     and t.aufgenommen_am between gw.start - interval '60 seconds' and gw.ende + interval '60 seconds') as in_gpx
+      from privat.tour_positionen t
+      where t.geraet_id = ${g.id} and (t.genauigkeit_m is null or t.genauigkeit_m <= 60)
+        and t.aufgenommen_am >= (${ab}::date::timestamp at time zone ${g.zeitzone})
+    ),
+    p as (
+      select *, lag(lat) over w as plat, lag(lng) over w as plng, lag(aufgenommen_am) over w as pt, lag(in_gpx) over w as p_in_gpx
+      from p0 window w as (partition by tag order by aufgenommen_am)
     ),
     d as (
       select *, extract(epoch from aufgenommen_am - pt) as dt,
              2 * 6371 * asin(sqrt(power(sin(radians(lat - plat) / 2), 2)
-               + cos(radians(plat)) * cos(radians(lat)) * power(sin(radians(lng - plng) / 2), 2))) as km
+               + cos(radians(plat)) * cos(radians(lat)) * power(sin(radians(lng - plng) / 2), 2))) as km,
+             -- Teilstück zählt als "außerhalb GPX", wenn beide Punkte draußen liegen und kein GPX-Teil dazwischen liegt
+             (not in_gpx and not coalesce(p_in_gpx, false) and not exists (
+                select 1 from privat.tour_gpx gw where gw.geraet_id = ${g.id} and gw.start > p.pt and gw.ende < p.aufgenommen_am)) as aussen
       from p
     ),
     strecke as (
@@ -290,12 +327,19 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
         coalesce(sum(km) filter (where km > 0.005 and dt > 0 and km / (dt / 3600) < 300), 0) as km,
         coalesce(sum(dt) filter (where dt > 0 and dt < 180 and km / (dt / 3600) > 4), 0) as fahrzeit_s,
         max(geschwindigkeit_kmh) filter (where geschwindigkeit_kmh < 300) as max_kmh,
-        max(hoehe_m) as hoehe_max
+        max(hoehe_m) as hoehe_max,
+        coalesce(sum(km) filter (where aussen and km > 0.005 and dt > 0 and km / (dt / 3600) < 300), 0) as km_aussen,
+        coalesce(sum(dt) filter (where aussen and dt > 0 and dt < 180 and km / (dt / 3600) > 4), 0) as fz_aussen,
+        max(geschwindigkeit_kmh) filter (where aussen and geschwindigkeit_kmh < 300) as max_aussen,
+        max(hoehe_m) filter (where not in_gpx) as hoehe_aussen
       from d group by tag
     ),
-    gx as (
-      select tag, start, ende, km, fahrzeit_s, max_kmh, anstieg_m, hoehe_max, linie
+    gx as (   -- alle GPX-Teile eines Tages zusammengefasst
+      select tag, min(start) as start, max(ende) as ende, sum(km) as km, sum(fahrzeit_s) as fahrzeit_s, max(max_kmh) as max_kmh,
+             sum(anstieg_m) as anstieg_m, max(hoehe_max) as hoehe_max,
+             jsonb_agg(linie order by start) as linien
       from privat.tour_gpx where geraet_id = ${g.id} and tag >= ${ab}::date
+      group by tag
     ),
     fotos as (
       select (aufgenommen_am at time zone ${g.zeitzone})::date as tag, count(*) as anzahl,
@@ -335,11 +379,15 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
     ),
     tage as (select tag from strecke union select tag from fotos union select tag from kom union select tag from gx)
     select t.tag::text as datum, row_number() over (order by t.tag)::int as nr,
-           coalesce(gx.start, s.start) as start, coalesce(gx.ende, s.ende) as ende,
-           coalesce(gx.linie, l.punkte::jsonb, '[]'::jsonb) as linie, tf.id as titelfoto, coalesce(zi.liste, '[]'::json) as zitate,
-           round(coalesce(gx.km, s.km, 0)::numeric, 2)::float8 as km, coalesce(gx.fahrzeit_s, s.fahrzeit_s, 0)::int as fahrzeit_s,
-           round(coalesce(gx.max_kmh, s.max_kmh)::numeric)::int as max_kmh,
-           round(gx.anstieg_m::numeric)::int as anstieg_m, round(coalesce(gx.hoehe_max, s.hoehe_max)::numeric)::int as hoehe_max,
+           least(gx.start, s.start) as start, greatest(gx.ende, s.ende) as ende,
+           -- Mini-Karte: die Live-Linie zeigt den ganzen Tag; ohne Live-Daten die GPX-Teile aneinandergehängt
+           coalesce(l.punkte::jsonb, (select jsonb_agg(e) from jsonb_array_elements(gx.linien) teil, jsonb_array_elements(teil) e), '[]'::jsonb) as linie,
+           tf.id as titelfoto, coalesce(zi.liste, '[]'::json) as zitate,
+           round((case when gx.tag is not null then gx.km + coalesce(s.km_aussen, 0) else coalesce(s.km, 0) end)::numeric, 2)::float8 as km,
+           (case when gx.tag is not null then gx.fahrzeit_s + coalesce(s.fz_aussen, 0) else coalesce(s.fahrzeit_s, 0) end)::int as fahrzeit_s,
+           round(greatest(gx.max_kmh, case when gx.tag is not null then s.max_aussen else s.max_kmh end)::numeric)::int as max_kmh,
+           round(gx.anstieg_m::numeric)::int as anstieg_m,
+           round(greatest(gx.hoehe_max, case when gx.tag is not null then s.hoehe_aussen else s.hoehe_max end)::numeric)::int as hoehe_max,
            (gx.tag is not null) as gpx,
            coalesce(f.anzahl, 0)::int as fotos, coalesce(f.ids, '{}') as foto_ids, coalesce(k.anzahl, 0)::int as kommentare
     from tage t
@@ -527,7 +575,11 @@ async function gpxHochladen(req: Request, url: URL) {
   const [{ tag }] = await sql`select ((${werte.start}::timestamptz) at time zone ${geraet.zeitzone})::date::text as tag`;
 
   const id = await sql.begin(async (tx) => {
-    await tx`delete from privat.tour_gpx where geraet_id = ${geraet.id} and tag = ${tag}::date`;
+    // Eine Datei, die zeitlich mit einem vorhandenen Teil überlappt, ersetzt ihn (z. B. dieselbe Datei nochmal).
+    // Andere Teile desselben Tages bleiben und werden kombiniert.
+    await tx`
+      delete from privat.tour_gpx
+      where geraet_id = ${geraet.id} and tag = ${tag}::date and start < ${werte.ende} and ende > ${werte.start}`;
     const [neu] = await tx`
       insert into privat.tour_gpx (geraet_id, tag, name, punkte_original, start, ende, km, fahrzeit_s, max_kmh,
                                    anstieg_m, abstieg_m, hoehe_max, hoehe_max_lat, hoehe_max_lng, linie)

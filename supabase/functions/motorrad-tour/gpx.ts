@@ -122,3 +122,34 @@ export function miniLinie(p: GpxPunkt[], n = 80) {
   const aus = p.filter((_, i) => i % schritt === 0 || i === p.length - 1);
   return aus.map((q) => [Math.round(q.lat * 1e5) / 1e5, Math.round(q.lng * 1e5) / 1e5]);
 }
+
+// ---------- GPX und Live-Punkte kombinieren ----------
+// Zeitfenster der hochgeladenen GPX-Teile eines Tages (in ms)
+export type Fenster = { start: number; ende: number };
+const RAND_MS = 60000;   // eine Minute Puffer um jedes GPX-Fenster
+
+export function imFenster(t: number, fenster: Fenster[]) {
+  return fenster.some((f) => t >= f.start - RAND_MS && t <= f.ende + RAND_MS);
+}
+
+// Live-Punkte außerhalb der GPX-Fenster auswerten (gleiche Regeln wie die Live-Seite).
+// Paare, zwischen denen ein GPX-Fenster liegt, zählen nicht (sonst würde quer über den GPX-Teil gemessen).
+export type LivePunkt = { t: number; lat: number; lng: number; kmh: number | null; hoehe: number | null; genau: number | null };
+export function liveAuswerten(punkte: LivePunkt[], fenster: Fenster[]) {
+  const gut = punkte.filter((p) => p.genau == null || p.genau <= 60).sort((a, b) => a.t - b.t);
+  let km = 0, fahrMs = 0, maxKmh = 0;
+  let hoeheMax: LivePunkt | null = null;
+  for (let i = 0; i < gut.length; i++) {
+    const b = gut[i];
+    if (b.kmh != null && b.kmh < 300 && b.kmh > maxKmh) maxKmh = b.kmh;
+    if (b.hoehe != null && (!hoeheMax || b.hoehe > (hoeheMax.hoehe as number))) hoeheMax = b;
+    if (i === 0) continue;
+    const a = gut[i - 1], dt = b.t - a.t;
+    if (dt <= 0 || fenster.some((f) => a.t < f.start && b.t > f.ende)) continue;
+    const d = abstandKm(a, b), v = d / (dt / 3600000);
+    if (v > 300) continue;
+    if (d > 0.005) km += d;
+    if (dt < 180000 && v > 4) fahrMs += dt;
+  }
+  return { km, fahrzeit_s: Math.round(fahrMs / 1000), max_kmh: maxKmh, hoehe_max: hoeheMax };
+}

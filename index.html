@@ -696,7 +696,8 @@
     $("umgebung").hidden = true;
     grossModus(true, km);
     $("ort").textContent = "unterwegs von " + uhr(erster.t) + " bis " + uhr(letzter.t) + " Uhr"
-      + (g ? " · Strecke von Calimoto" + (g.anstieg_m ? " · ⛰️ " + tausender(g.anstieg_m) + " Höhenmeter" : "") : "");
+      + (g ? " · Strecke " + (g.live_km > 0.5 ? "von Calimoto + Live-Daten" : "von Calimoto")
+             + (g.anstieg_m ? " · ⛰️ " + tausender(g.anstieg_m) + " Höhenmeter" + (g.live_km > 0.5 ? " (Calimoto-Teil)" : "") : "") : "");
     $("w-km").textContent = kmText(km);
     $("w-fahrzeit").textContent = dauerText(fahrMs);
     $("w-schnitt").textContent = fahrMs > 60000 ? Math.round(km / (fahrMs / 3600000)) : "–";
@@ -1294,10 +1295,10 @@
         tageLaden();
         if (!tag) { neuLaden(); return; }
       }
-      if (d.gpx && !gpxInfo) {
-        // Calimoto-Strecke wurde (neu) hochgeladen: Live-Punkte des Tages durch die GPX-Punkte ersetzen
-        gpxInfo = d.gpx;
-        if (d.positionen.length) { alle = []; punkte = []; ersteAnsicht = true; }
+      if (d.gpx) {
+        // Calimoto-Strecke vorhanden: beim ersten Mal die bisher geladenen Live-Punkte durch die kombinierte Strecke ersetzen
+        if (!gpxInfo && d.positionen.length) { alle = []; punkte = []; ersteAnsicht = true; }
+        gpxInfo = d.gpx;   // Tageswerte (GPX + Live-Rest) bei jedem Abruf aktualisieren
       }
       if (d.positionen.length) {
         const bekannt = new Set(alle.map((p) => p.t));
