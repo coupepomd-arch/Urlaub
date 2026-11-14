@@ -16,6 +16,8 @@ Live-Seite (index.html)  ────────────────┘  fr
 | `index.html` | Live-Seite (Karte + Werte). Der Zugang steht als geheimer Schlüssel hinter dem `#` im Link. |
 | `foto.html` | Upload-Seite für Fotos unterwegs. Der Sendeschlüssel steht hinter dem `#` im Link. |
 | `supabase/functions/motorrad-tour/index.ts` | Nimmt Positionen und Fotos vom Handy an und liefert sie an die Seite. |
+| `supabase/functions/motorrad-tour/gpx.ts` | GPX-Dateien einlesen, auswerten, ausdünnen und mit Live-Daten kombinieren. |
+| `supabase/functions/motorrad-tour/orte.ts` | Ortsnamen und Orte in der Nähe aus OpenStreetMap. |
 
 Die Daten liegen im Supabase-Projekt im eigenen Schema `privat`, getrennt von allen anderen Tabellen.
 Das Schema ist nicht über die öffentliche API erreichbar; nur die Edge Function liest und schreibt.
@@ -84,6 +86,12 @@ Kommentar ausblenden: `update privat.tour_kommentare set tag = date '2000-01-01'
 - **Schnellmeldungen** auf der Fahrer-Seite (☕ Pause, ⛽ Tanken, 👍 Alles gut, 🏁 Angekommen …): erscheinen als
   Symbol auf der Karte, als Hinweis und im Status („☕ Kaffeepause · seit 12 min“). Gespeichert in
   `privat.tour_kommentare` mit `art`, `lat`, `lng`.
+- **Orte** zu Meldungen und Fotos: Jede Meldung und jedes Foto bekommt automatisch den Ortsnamen (`ortschaft`, über
+  Nominatim, Reserve Photon). Nach ☕ 🍽️ ⛽ 📸 🌋 🏁 zeigt die Fahrer-Seite Lokale, Tankstellen, Unterkünfte, Aussichtspunkte
+  und Gipfel in der Nähe (Photon/komoot, Reserve Overpass – alles OpenStreetMap, ohne Schlüssel); ein Tipp speichert den Ort
+  (`platz`, `platz_typ`), Name eintippen geht auch, „📍 Ort“ in der Kommentarliste erlaubt es später. Liegt beim Foto ein
+  Aussichtspunkt ganz nah, wird er direkt vorgeschlagen. Die Live-Seite zeigt den Ort neben der Meldung als Link zu Google
+  Maps, im Status („🍽️ Essenspause · Casa Chico“), in der Fotoansicht und als Stationen pro Tag im Reisebuch.
 - **Reaktionen** ❤️ 🔥 😂 👍 😮 auf Fotos und Kommentare (`privat.tour_reaktionen`, eine anonyme Kennung pro Browser).
 - **Wetter** (Open-Meteo) und **Ortsname** (Nominatim, gedrosselt) zur aktuellen Position; die Abfragen kommen
   direkt aus dem Browser der Zuschauer.

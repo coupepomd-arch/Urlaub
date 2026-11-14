@@ -51,7 +51,7 @@
     background: var(--karte); color: var(--text); resize: vertical; min-height: 56px;
   }
   #liste { list-style: none; padding: 0; margin: 20px 0 0; display: grid; gap: 10px; }
-  #liste li { display: flex; gap: 12px; align-items: center; background: var(--karte); border-radius: 14px; padding: 10px; }
+  #liste li { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; background: var(--karte); border-radius: 14px; padding: 10px; }
   #liste img { width: 64px; height: 64px; object-fit: cover; border-radius: 10px; flex: none; background: var(--bg); }
   #liste .info { flex: 1; min-width: 0; }
   #liste .titel { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -77,6 +77,24 @@
   .gpx-teil button { flex: none; border: 0; border-radius: 10px; padding: 8px 10px; font: inherit; font-size: 14px; font-weight: 600;
     background: var(--bg); color: var(--rot); cursor: pointer; }
   #meldung { display: none; text-align: center; padding: 60px 10px; }
+  .ort-wahl { background: var(--karte); border-radius: 16px; padding: 12px; margin: 4px 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  #liste .ort-wahl { flex-basis: 100%; margin: 4px 0 0; box-shadow: none; background: var(--bg); }
+  .ort-wahl h3 { font-size: 16px; margin: 0 0 4px; }
+  .ort-wahl .info { color: var(--leise); font-size: 14px; margin: 0 0 8px; }
+  .ort-wahl .orte { display: grid; gap: 6px; }
+  .ort-wahl .orte button { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; cursor: pointer;
+    border: 1px solid var(--linie); border-radius: 12px; padding: 12px; font: inherit; font-weight: 600; background: var(--karte); color: var(--text); }
+  .ort-wahl .orte button span { font-size: 22px; line-height: 1; }
+  .ort-wahl .orte button small { margin-left: auto; color: var(--leise); font-weight: 400; white-space: nowrap; }
+  .ort-wahl .frei { display: flex; gap: 8px; margin-top: 8px; }
+  .ort-wahl .frei input { flex: 1; min-width: 0; border: 1px solid var(--linie); border-radius: 12px; padding: 12px; font: inherit; background: var(--karte); color: var(--text); }
+  .ort-wahl .frei button, .ort-wahl .unten button { border: 0; border-radius: 12px; padding: 0 16px; font: inherit; font-weight: 600; background: var(--akzent); color: #fff; cursor: pointer; }
+  .ort-wahl .unten { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+  .ort-wahl .unten button { padding: 10px 14px; background: transparent; color: var(--leise); }
+  .ort-wahl .ok { font-weight: 650; color: var(--gruen); display: flex; align-items: center; gap: 8px; }
+  .ort-wahl .ok button { margin-left: auto; border: 0; background: transparent; color: var(--leise); font: inherit; font-size: 14px; cursor: pointer; }
+  .ort-knopf { border: 0; background: transparent; color: var(--akzent); font: inherit; font-size: 14px; font-weight: 600; padding: 4px 0; cursor: pointer; }
+  .meldung-k .ort-knopf { color: #fff; text-decoration: underline; margin-left: 8px; padding: 0; }
 </style>
 </head>
 <body>
@@ -96,6 +114,7 @@
     <button type="button" data-art="angekommen"><span>🏁</span>Angekommen</button>
   </div>
   <p id="meldung-status" aria-live="polite"></p>
+  <div id="ort-wahl" hidden></div>
 
   <h2>📷 Fotos</h2>
   <p class="leise">Fotos erscheinen auf der Live-Karte an der Stelle, an der sie aufgenommen wurden.</p>
@@ -153,6 +172,165 @@
       () => {}, { enableHighAccuracy: true, timeout: 8000, maximumAge: 120000 });
   }
 
+  // ---------- Ort auswählen (Lokal, Tankstelle, Aussichtspunkt … aus OpenStreetMap) ----------
+  const TYP_EMOJI = { restaurant: "🍽️", fast_food: "🍔", cafe: "☕", bar: "🍸", pub: "🍺", biergarten: "🍺", ice_cream: "🍦",
+    fuel: "⛽", hotel: "🏨", guest_house: "🏡", apartment: "🏡", hostel: "🏨", viewpoint: "🌄", attraction: "⭐", museum: "🏛️",
+    picnic_site: "🌳", peak: "🗻", volcano: "🌋", beach: "🏖️" };
+  const typEmoji = (t) => TYP_EMOJI[t] || "📍";
+  const neu = (tag, klasse, text) => { const e = document.createElement(tag); if (klasse) e.className = klasse; if (text != null) e.textContent = text; return e; };
+  const entfernung = (m) => m < 1000 ? m + " m" : (m / 1000).toFixed(1).replace(".", ",") + " km";
+  // Direkt vom Handy aus OpenStreetMap fragen (Photon/komoot für Orte, Nominatim für den Ortsnamen);
+  // Server-Adressen werden von diesen kostenlosen Diensten oft gesperrt. Der Server ist nur die Reserve.
+  const ESSEN = ["restaurant", "cafe", "bar", "pub", "fast_food", "ice_cream", "biergarten", "fuel"];
+  const UNTERKUNFT = ["hotel", "guest_house", "apartment", "hostel"];
+  const SEHENS = ["viewpoint", "attraction", "museum", "picnic_site"];
+  const NATUR = ["peak", "volcano", "beach"];
+  const PASST = { essen: ["restaurant", "fast_food", "cafe", "bar", "pub", "biergarten"],
+    pause: ["cafe", "bar", "restaurant", "ice_cream", "pub", "fast_food", "viewpoint"], tanken: ["fuel"],
+    aussicht: ["viewpoint", "peak", "volcano", "attraction"], foto: ["viewpoint", "peak", "volcano", "attraction", "beach"],
+    angekommen: ["hotel", "guest_house", "apartment", "restaurant"] };
+  const mitZeit = (ms) => ({ cache: "no-store", signal: AbortSignal.timeout ? AbortSignal.timeout(ms) : undefined });
+  function meter(a, b) {
+    const r = (g) => g * Math.PI / 180, dLat = r(b.lat - a.lat), dLng = r(b.lng - a.lng);
+    const h = Math.sin(dLat / 2) ** 2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLng / 2) ** 2;
+    return Math.round(2 * 6371000 * Math.asin(Math.sqrt(h)));
+  }
+  async function photonOrte(lat, lng) {
+    const frage = async (radius, tags) => {
+      const u = "https://photon.komoot.io/reverse?lat=" + lat.toFixed(5) + "&lon=" + lng.toFixed(5) + "&limit=25&radius=" + radius
+        + tags.map((t) => "&osm_tag=" + t).join("");
+      const r = await fetch(u, mitZeit(8000));
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const d = await r.json();
+      return (d.features || []).filter((f) => ["amenity", "tourism", "natural"].includes(f.properties?.osm_key)).map((f) => ({
+        name: String(f.properties.name || ""), typ: String(f.properties.osm_value || ""),
+        lat: f.geometry?.coordinates?.[1], lng: f.geometry?.coordinates?.[0] }));
+    };
+    const teile = await Promise.allSettled([
+      frage(0.35, [...ESSEN.map((x) => "amenity:" + x), ...UNTERKUNFT.map((x) => "tourism:" + x)]),
+      frage(1.5, [...SEHENS.map((x) => "tourism:" + x), ...NATUR.map((x) => "natural:" + x)])]);
+    if (teile.every((t) => t.status === "rejected")) throw new Error("Photon nicht erreichbar");
+    return teile.flatMap((t) => (t.status === "fulfilled" ? t.value : []));
+  }
+  async function ortschaftDirekt(lat, lng) {
+    try {
+      const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=de&lat=" + lat.toFixed(5) + "&lon=" + lng.toFixed(5), mitZeit(6000));
+      const a = (await r.json()).address || {};
+      const n = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || a.county;
+      if (n) return n;
+    } catch (e) {}
+    try {
+      const r = await fetch("https://photon.komoot.io/reverse?limit=1&lat=" + lat.toFixed(5) + "&lon=" + lng.toFixed(5), mitZeit(6000));
+      const p = (await r.json()).features?.[0]?.properties || {};
+      return p.district || p.city || p.locality || p.county || null;
+    } catch (e) { return null; }
+  }
+  function orteSortieren(roh, lat, lng, art) {
+    const passt = new Set(PASST[art] || []), gesehen = new Set(), aus = [];
+    for (const e of roh) {
+      const name = e.name.trim();
+      if (!name || !Number.isFinite(e.lat) || !Number.isFinite(e.lng) || gesehen.has(name.toLowerCase())) continue;
+      gesehen.add(name.toLowerCase());
+      const m = meter({ lat, lng }, e);
+      const fern = NATUR.includes(e.typ) || SEHENS.includes(e.typ) ? 1.5 : 1;
+      aus.push({ name: name.slice(0, 120), typ: e.typ, lat: e.lat, lng: e.lng, m, rang: m * fern * (passt.has(e.typ) ? 0.4 : 1) });
+    }
+    return aus.sort((a, b) => a.rang - b.rang).slice(0, 12);
+  }
+  const orteCache = {};
+  async function orteHolen(lat, lng, art) {
+    const k = lat.toFixed(4) + "," + lng.toFixed(4) + "," + (art || "");
+    if (orteCache[k]) return orteCache[k];
+    let d;
+    try {
+      const [roh, ortschaft] = await Promise.all([photonOrte(lat, lng), ortschaftDirekt(lat, lng)]);
+      d = { ok: true, ortschaft, orte: orteSortieren(roh, lat, lng, art) };
+    } catch (e) {
+      // Reserve: über den Server
+      const r = await fetch(API + "?orte=1&id=" + encodeURIComponent(token) + "&lat=" + lat + "&lng=" + lng + (art ? "&art=" + art : ""), { cache: "no-store" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      d = await r.json();
+      if (!d.ortschaft) d.ortschaft = await ortschaftDirekt(lat, lng);
+    }
+    return (orteCache[k] = d);
+  }
+  // Ortsnamen zur Meldung bzw. zum Foto speichern (im Hintergrund, Fehler egal)
+  function ortschaftMerken(ziel, id, ortschaft) {
+    if (!ortschaft || !id) return;
+    fetch(API + "?ort_setzen=1&id=" + encodeURIComponent(token), {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ziel, ziel_id: id, ortschaft }) }).catch(() => {});
+  }
+  async function ortSpeichern(ziel, id, name, typ) {
+    for (let versuch = 1; versuch <= 3; versuch++) {
+      try {
+        const r = await fetch(API + "?ort_setzen=1&id=" + encodeURIComponent(token), {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ziel, ziel_id: id, name, typ }) });
+        if (r.ok) return true;
+        if (r.status < 500) return false;
+      } catch (e) {}
+      await new Promise((ok) => setTimeout(ok, 1500 * versuch));
+    }
+    return false;
+  }
+  // Zeigt in "box" die Orte in der Nähe; ein Tipp speichert den Ort zur Meldung bzw. zum Foto.
+  // opt: { ziel: "kommentar"|"foto", id, lat, lng, art, frage, aktuell, fertig(name, typ) }
+  function ortWahl(box, opt) {
+    box.hidden = false;
+    box.className = "ort-wahl";
+    box.textContent = "";
+    const info = neu("p", "info", opt.lat != null ? "Orte in der Nähe werden gesucht …" : "Kein Standort bekannt – Namen eintippen:");
+    const liste = neu("div", "orte");
+    const form = neu("form", "frei");
+    const eingabe = neu("input"); eingabe.maxLength = 120; eingabe.placeholder = "oder Namen eintippen …"; eingabe.setAttribute("aria-label", "Ort");
+    const ok = neu("button", null, "OK"); ok.type = "submit";
+    form.append(eingabe, ok);
+    const unten = neu("div", "unten");
+    if (opt.aktuell) {
+      const weg = neu("button", null, "Ort entfernen"); weg.type = "button";
+      weg.onclick = () => waehlen("", null);
+      unten.appendChild(weg);
+    }
+    const zu = neu("button", null, opt.aktuell ? "Abbrechen" : "Überspringen"); zu.type = "button";
+    zu.onclick = () => { box.hidden = true; box.textContent = ""; if (opt.zu) opt.zu(); };
+    unten.appendChild(zu);
+    box.append(neu("h3", null, opt.frage || "📍 Wo bist du?"), info, liste, form, unten);
+
+    async function waehlen(name, typ) {
+      for (const b of box.querySelectorAll("button, input")) b.disabled = true;
+      info.textContent = "wird gespeichert …";
+      const gut = await ortSpeichern(opt.ziel, opt.id, name, typ);
+      if (!gut) {
+        for (const b of box.querySelectorAll("button, input")) b.disabled = false;
+        info.textContent = "⚠️ Speichern fehlgeschlagen – bitte nochmal tippen.";
+        return;
+      }
+      box.textContent = "";
+      const zeile = neu("div", "ok", name ? "✓ " + typEmoji(typ) + " " + name : "✓ Ort entfernt");
+      const aendern = neu("button", null, "ändern"); aendern.type = "button";
+      aendern.onclick = () => ortWahl(box, { ...opt, aktuell: name || null });
+      if (name) zeile.appendChild(aendern);
+      box.appendChild(zeile);
+      if (opt.fertig) opt.fertig(name || null, typ || null);
+    }
+    form.onsubmit = (e) => { e.preventDefault(); const n = eingabe.value.trim(); if (n) waehlen(n, null); };
+
+    if (opt.lat == null) return;
+    (opt.vorgeladen ? Promise.resolve(opt.vorgeladen) : orteHolen(opt.lat, opt.lng, opt.art)).then((d) => {
+      if (!opt.ortschaftGemerkt) { opt.ortschaftGemerkt = true; ortschaftMerken(opt.ziel, opt.id, d.ortschaft); }
+      if (!d.ok) { info.textContent = "Ortssuche gerade nicht erreichbar – Namen eintippen oder überspringen."; return; }
+      info.textContent = (d.ortschaft ? "bei " + d.ortschaft + " · " : "") + (d.orte.length ? "tippe auf einen Ort:" : "keine Orte in der Nähe gefunden – Namen eintippen oder überspringen.");
+      for (const o of d.orte.slice(0, 8)) {
+        const b = neu("button"); b.type = "button";
+        b.append(neu("span", null, typEmoji(o.typ)), document.createTextNode(o.name), neu("small", null, entfernung(o.m)));
+        b.onclick = () => waehlen(o.name, o.typ);
+        liste.appendChild(b);
+      }
+    }).catch(() => { info.textContent = "Keine Verbindung zur Ortssuche – Namen eintippen oder überspringen."; });
+  }
+  const ORT_ARTEN = ["pause", "tanken", "essen", "foto", "aussicht", "angekommen"];
+  const FRAGE = { essen: "📍 Wo isst du?", tanken: "📍 Welche Tankstelle?", pause: "📍 Wo machst du Pause?",
+    aussicht: "📍 Welche Aussicht?", foto: "📍 Wo bist du?", angekommen: "📍 Wo bist du angekommen?" };
+
   // ---------- Kommentare lesen und antworten ----------
   let kCursor = 0, kommentare = [];
   const uhr = (d) => new Date(d).toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit" });
@@ -163,9 +341,19 @@
       if (k.art) {
         const m = document.createElement("div");
         m.className = "meldung-k";
-        m.textContent = "🏍️ " + k.text;
+        m.textContent = "🏍️ " + k.text + (k.platz ? " · " + typEmoji(k.platz_typ) + " " + k.platz : k.ortschaft ? " · bei " + k.ortschaft : "");
         const sm = document.createElement("small"); sm.textContent = uhr(k.t);
         m.appendChild(sm);
+        if (ORT_ARTEN.includes(k.art)) {
+          const o = neu("button", "ort-knopf", k.platz ? "ändern" : "📍 Ort"); o.type = "button";
+          o.onclick = () => {
+            ortWahl($("ort-wahl"), { ziel: "kommentar", id: k.id, lat: k.lat, lng: k.lng, art: k.art, aktuell: k.platz,
+              frage: (FRAGE[k.art] || "📍 Wo warst du?") + " (" + k.text + ", " + uhr(k.t) + ")",
+              fertig: (name, typ) => { k.platz = name; k.platz_typ = typ; kommentareZeichnen(); } });
+            $("ort-wahl").scrollIntoView({ behavior: "smooth", block: "center" });
+          };
+          m.appendChild(o);
+        }
         liste.appendChild(m);
         continue;
       }
@@ -294,12 +482,13 @@
         navigator.geolocation.getCurrentPosition((p) => ok({ lat: p.coords.latitude, lng: p.coords.longitude }),
           () => ok(null), { enableHighAccuracy: true, timeout: 6000, maximumAge: 60000 });
       });
-      let erfolg = false;
+      let erfolg = false, antwort = null;
       for (let versuch = 1; versuch <= 4 && !erfolg; versuch++) {
         try {
           const r = await fetch(API + "?kommentar=1&id=" + encodeURIComponent(token), {
             method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ art, ...(ort || {}) }) });
           erfolg = r.ok;
+          if (erfolg) antwort = await r.json().catch(() => null);
         } catch (e) {}
         if (!erfolg) await new Promise((ok) => setTimeout(ok, 2000 * versuch));
       }
@@ -309,6 +498,14 @@
         $("meldung-status").textContent = "✓ Meldung um " + uhr(Date.now()) + " gesendet";
         setTimeout(() => { b.classList.remove("gesendet"); b.innerHTML = alt; }, 2500);
         kommentareLaden();
+        // Danach (freiwillig) den Ort dazu auswählen
+        if (antwort && antwort.id && ORT_ARTEN.includes(art)) {
+          ortWahl($("ort-wahl"), { ziel: "kommentar", id: antwort.id, lat: antwort.lat, lng: antwort.lng, art, frage: FRAGE[art],
+            fertig: (name, typ) => { const k = kommentare.find((x) => x.id === antwort.id); if (k) { k.platz = name; k.platz_typ = typ; kommentareZeichnen(); } } });
+        } else {
+          $("ort-wahl").hidden = true;
+          if (antwort && antwort.id && antwort.lat != null) ortschaftDirekt(antwort.lat, antwort.lng).then((o) => ortschaftMerken("kommentar", antwort.id, o));
+        }
       } else {
         $("meldung-status").textContent = "⚠️ Keine Verbindung – bitte nochmal tippen.";
       }
@@ -403,6 +600,42 @@
     for (const d of dateien) hochladen(d, titel);
   }
 
+  // Nach dem Hochladen: Ort zum Foto. Liegt ein Aussichtspunkt, Gipfel o. Ä. ganz nah, wird er direkt vorgeschlagen.
+  const SEHENSWERT = ["viewpoint", "peak", "volcano", "attraction", "beach", "museum"];
+  async function fotoOrtAnbieten(li, d) {
+    const info = li.querySelector(".info");
+    const box = neu("div"); box.hidden = true;
+    const knopf = neu("button", "ort-knopf", "📍 Ort hinzufügen"); knopf.type = "button";
+    const zeigen = (vorgeladen) => {
+      knopf.hidden = true;
+      ortWahl(box, { ziel: "foto", id: d.id, lat: d.lat, lng: d.lng, art: "foto", frage: "📍 Wo war das?", vorgeladen,
+        zu: () => { knopf.hidden = false; } });
+    };
+    knopf.onclick = () => zeigen(null);
+    info.appendChild(knopf);
+    li.appendChild(box);
+    try {
+      const orte = await orteHolen(d.lat, d.lng, "foto");
+      ortschaftMerken("foto", d.id, orte.ortschaft);
+      const o = orte.ok && orte.orte[0];
+      if (!o || !SEHENSWERT.includes(o.typ) || o.m > (["peak", "volcano"].includes(o.typ) ? 600 : 250)) return;
+      // Vorschlag: ein Tipp übernimmt ihn
+      knopf.hidden = true;
+      box.hidden = false; box.className = "ort-wahl"; box.textContent = "";
+      const ja = neu("button", null, "✓ Ja"); ja.type = "button";
+      const andere = neu("button", null, "Andere …"); andere.type = "button";
+      const zeile = neu("div", "unten"); zeile.append(andere, ja);
+      ja.style.background = "var(--akzent)"; ja.style.color = "#fff";
+      box.append(neu("h3", null, typEmoji(o.typ) + " " + o.name + "?"), neu("p", "info", "Liegt " + entfernung(o.m) + " vom Fotoort entfernt."), zeile);
+      ja.onclick = async () => {
+        ja.disabled = andere.disabled = true;
+        if (await ortSpeichern("foto", d.id, o.name, o.typ)) { box.textContent = ""; box.appendChild(neu("div", "ok", "✓ " + typEmoji(o.typ) + " " + o.name)); }
+        else { ja.disabled = andere.disabled = false; box.querySelector(".info").textContent = "⚠️ Speichern fehlgeschlagen – nochmal tippen."; }
+      };
+      andere.onclick = () => zeigen(orte);
+    } catch (e) {}
+  }
+
   async function hochladen(datei, titel) {
     const li = document.createElement("li");
     li.innerHTML = '<img alt=""><div class="info"><div class="titel"></div><div class="status">wird vorbereitet …</div></div>';
@@ -441,6 +674,7 @@
         const ort = { foto: "Ort aus Foto", strecke: "Ort von der Strecke", handy: "Ort vom Handy", letzter: "Ort: letzte Position" }[d.ort] || "ohne Ort";
         const uhrzeit = new Date(zeit).toLocaleString("de-DE", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
         status("✓ auf der Karte · " + uhrzeit + " · " + zeitQuelle + " · " + ort, "ok");
+        if (d.id && d.lat != null) fotoOrtAnbieten(li, d);
         return;
       } catch (e) {
         await new Promise((ok) => setTimeout(ok, Math.min(30000, 2000 * 2 ** versuch)));

@@ -17,8 +17,12 @@
 //                            Mehrere Dateien pro Tag werden kombiniert; eine Datei mit überlappender Zeit ersetzt die alte.
 // GPX-Dateien auflisten:     GET  .../motorrad-tour?id=<SENDE_TOKEN>&gpx_liste=1
 // GPX-Datei entfernen:       POST .../motorrad-tour?id=<SENDE_TOKEN>&gpx_entfernen=1  JSON {id}   (Live-Daten bleiben erhalten)
+// Orte in der Nähe:          GET  .../motorrad-tour?id=<SENDE_TOKEN>&orte=1&lat=..&lng=..[&art=essen]  (OpenStreetMap)
+// Ort festlegen:             POST .../motorrad-tour?id=<SENDE_TOKEN>&ort_setzen=1  JSON {ziel: "kommentar"|"foto", ziel_id, name?, typ?, ortschaft?}
+//                            Meldungen und Fotos bekommen außerdem automatisch den Ortsnamen (ortschaft).
 import postgres from "npm:postgres@3.4.5";
 import { ausduennen, auswerten, type Fenster, gpxLesen, imFenster, liveAuswerten, miniLinie, tempoSetzen } from "./gpx.ts";
+import { ortschaftHolen, orteInDerNaehe } from "./orte.ts";
 
 const sql = postgres(Deno.env.get("SUPABASE_DB_URL")!, { max: 2, prepare: false });
 
@@ -254,7 +258,7 @@ async function ansehen(url: URL) {
   }
 
   const fotos = await sql`
-    select id, aufgenommen_am, lat, lng, titel
+    select id, aufgenommen_am, lat, lng, titel, ortschaft, platz, platz_typ
     from privat.tour_fotos
     where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis} and id > ${fotosSeit}
     order by id`;
@@ -273,7 +277,16 @@ async function ansehen(url: URL) {
          select id from privat.tour_kommentare where geraet_id = ${g.id} and tag = ${datum}::date)))
     group by 1, 2, 3`;
 
+  // Orte von Fotos und Meldungen dieses Tages (immer vollständig, da sie nachträglich gesetzt werden können)
+  const orte = await sql`
+    select 'foto' as typ, id, ortschaft, platz, platz_typ from privat.tour_fotos
+    where geraet_id = ${g.id} and aufgenommen_am >= ${von} and aufgenommen_am < ${bis} and (ortschaft is not null or platz is not null)
+    union all
+    select 'kommentar', id, ortschaft, platz, platz_typ from privat.tour_kommentare
+    where geraet_id = ${g.id} and tag = ${datum}::date and (ortschaft is not null or platz is not null)`;
+
   return json({
+    orte: orte.map((o) => ({ typ: o.typ, id: Number(o.id), ortschaft: o.ortschaft, platz: o.platz, platz_typ: o.platz_typ })),
     name: g.name,
     titel: g.titel,
     reaktionen: reaktionen.map((r) => ({ typ: r.ziel_typ, id: Number(r.ziel_id), emoji: r.emoji, anzahl: r.anzahl, ich: r.ich })),
@@ -282,7 +295,8 @@ async function ansehen(url: URL) {
     kommentare_cursor: kommentare.length ? kommentare[kommentare.length - 1].id : kSeit,
     kommentare,
     fotos_cursor: fotos.length ? Number(fotos[fotos.length - 1].id) : fotosSeit,
-    fotos: fotos.map((f) => ({ id: Number(f.id), t: f.aufgenommen_am, lat: f.lat, lng: f.lng, titel: f.titel })),
+    fotos: fotos.map((f) => ({ id: Number(f.id), t: f.aufgenommen_am, lat: f.lat, lng: f.lng, titel: f.titel,
+      ortschaft: f.ortschaft, platz: f.platz, platz_typ: f.platz_typ })),
     gpx: gpxInfo,
     cursor: cursorNeu,
     positionen: rows.map((r) => ({
@@ -379,12 +393,19 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
       where rn <= 2
       group by tag
     ),
+    stationen as (   -- Schnellmeldungen mit Ort (ohne "Alles gut" und "Weiter geht's")
+      select tag, json_agg(json_build_object('t', erstellt_am, 'art', art, 'text', text, 'ortschaft', ortschaft,
+                                             'platz', platz, 'platz_typ', platz_typ, 'lat', lat, 'lng', lng) order by id) as liste
+      from privat.tour_kommentare
+      where geraet_id = ${g.id} and tag >= ${ab}::date and art is not null and art not in ('gut', 'weiter')
+      group by tag
+    ),
     tage as (select tag from strecke union select tag from fotos union select tag from kom union select tag from gx)
     select t.tag::text as datum, row_number() over (order by t.tag)::int as nr,
            least(gx.start, s.start) as start, greatest(gx.ende, s.ende) as ende,
            -- Mini-Karte: die Live-Linie zeigt den ganzen Tag; ohne Live-Daten die GPX-Teile aneinandergehängt
            coalesce(l.punkte::jsonb, (select jsonb_agg(e) from jsonb_array_elements(gx.linien) teil, jsonb_array_elements(teil) e), '[]'::jsonb) as linie,
-           tf.id as titelfoto, coalesce(zi.liste, '[]'::json) as zitate,
+           tf.id as titelfoto, coalesce(zi.liste, '[]'::json) as zitate, coalesce(st.liste, '[]'::json) as stationen,
            round((case when gx.tag is not null then gx.km + coalesce(s.km_aussen, 0) else coalesce(s.km, 0) end)::numeric, 2)::float8 as km,
            (case when gx.tag is not null then gx.fahrzeit_s + coalesce(s.fz_aussen, 0) else coalesce(s.fahrzeit_s, 0) end)::int as fahrzeit_s,
            round(greatest(gx.max_kmh, case when gx.tag is not null then s.max_aussen else s.max_kmh end)::numeric)::int as max_kmh,
@@ -395,7 +416,7 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
     from tage t
     left join strecke s using (tag) left join fotos f using (tag) left join kom k using (tag)
     left join linie l using (tag) left join titelfoto tf using (tag) left join zitate zi using (tag)
-    left join gx using (tag)
+    left join gx using (tag) left join stationen st using (tag)
     order by t.tag`;
   return json({
     titel: g.titel,
@@ -407,7 +428,7 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
 
 async function kommentareLaden(geraetId: number, seit: number, tag: string) {
   const rows = await sql`
-    select k.id, k.erstellt_am, k.tag::text as tag, k.name, k.text, k.foto_id, k.vom_fahrer, k.art, k.lat, k.lng, f.aufgenommen_am as foto_t
+    select k.id, k.erstellt_am, k.tag::text as tag, k.name, k.text, k.foto_id, k.vom_fahrer, k.art, k.lat, k.lng, k.ortschaft, k.platz, k.platz_typ, f.aufgenommen_am as foto_t
     from privat.tour_kommentare k
     left join privat.tour_fotos f on f.id = k.foto_id
     where k.geraet_id = ${geraetId} and k.tag = ${tag}::date and k.id > ${seit}
@@ -420,7 +441,7 @@ function kommentarJson(k: Record<string, any>) {
   return {
     id: Number(k.id), t: k.erstellt_am, tag: k.tag, name: k.name, text: k.text,
     foto_id: k.foto_id === null ? null : Number(k.foto_id), foto_t: k.foto_t, fahrer: k.vom_fahrer,
-    art: k.art, lat: k.lat, lng: k.lng,
+    art: k.art, lat: k.lat, lng: k.lng, ortschaft: k.ortschaft, platz: k.platz, platz_typ: k.platz_typ,
   };
 }
 
@@ -487,7 +508,77 @@ async function kommentarSchreiben(req: Request, url: URL) {
     insert into privat.tour_kommentare (geraet_id, name, text, foto_id, vom_fahrer, tag, art, lat, lng)
     values (${geraet.id}, ${name}, ${text}, ${fotoId}, ${fahrer}, ${tag}::date, ${art}, ${lat}, ${lng})
     returning id`;
-  return json({ ok: true, id: Number(neu.id) });
+  if (art && lat != null && lng != null) nebenbei(ortschaftNachtragen("kommentar", Number(neu.id), lat, lng));
+  return json({ ok: true, id: Number(neu.id), lat, lng });
+}
+
+// ---------- Orte ----------
+// Arbeit nach der Antwort weiterlaufen lassen (Edge Runtime), damit das Handy nicht warten muss
+function nebenbei(p: Promise<unknown>) {
+  const laufzeit = (globalThis as any).EdgeRuntime;
+  if (laufzeit?.waitUntil) laufzeit.waitUntil(p);
+}
+
+async function ortschaftNachtragen(ziel: "kommentar" | "foto", id: number, lat: number, lng: number) {
+  try {
+    const o = await ortschaftHolen(lat, lng);
+    if (!o) return;
+    if (ziel === "kommentar") await sql`update privat.tour_kommentare set ortschaft = ${o} where id = ${id} and ortschaft is null`;
+    else await sql`update privat.tour_fotos set ortschaft = ${o} where id = ${id} and ortschaft is null`;
+  } catch (e) {
+    console.error("Ortschaft", e);
+  }
+}
+
+async function sendeGeraet(url: URL) {
+  const token = url.searchParams.get("id");
+  if (!token) return null;
+  const [g] = await sql`select id from privat.tour_geraete where sende_token = ${token}`;
+  return g ? { id: Number(g.id) } : null;
+}
+
+// Lokale, Tankstellen, Aussichtspunkte … in der Nähe, zur Auswahl auf der Fahrer-Seite
+async function orteLiefern(url: URL) {
+  if (!(await sendeGeraet(url))) return json({ fehler: "unbekanntes Gerät" }, 403);
+  const lat = zahl(url.searchParams.get("lat")), lng = zahl(url.searchParams.get("lng"));
+  if (!koordinate(lat, lng)) return json({ fehler: "Ort fehlt" }, 400);
+  const art = url.searchParams.get("art");
+  const [orte, ortschaft] = await Promise.all([orteInDerNaehe(lat!, lng!, art), ortschaftHolen(lat!, lng!)]);
+  return json({ ok: orte !== null, ortschaft, orte: orte ?? [] });
+}
+
+// Ort festlegen: "name" (+ "typ") setzt das gewählte Lokal (leer = entfernen), "ortschaft" den Ortsnamen.
+// Die Fahrer-Seite fragt OpenStreetMap direkt vom Handy ab (Cloud-Adressen werden dort oft gesperrt) und schickt das Ergebnis.
+async function ortSetzen(req: Request, url: URL) {
+  const geraet = await sendeGeraet(url);
+  if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
+  let body: any;
+  try { body = await req.json(); } catch { return json({ fehler: "ungültige Daten" }, 400); }
+  const id = Math.floor(Number(body?.ziel_id)) || 0;
+  const mitName = body != null && typeof body === "object" && "name" in body;
+  const name = String(body?.name ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
+  const typ = name ? String(body?.typ ?? "").replace(/[^a-z_]/g, "").slice(0, 30) || null : null;
+  const ortschaft = String(body?.ortschaft ?? "").replace(/\s+/g, " ").trim().slice(0, 120) || null;
+  if (!mitName && !ortschaft) return json({ fehler: "nichts zu speichern" }, 400);
+  let rows;
+  if (body?.ziel === "kommentar") {
+    rows = await sql`update privat.tour_kommentare
+                     set platz = case when ${mitName} then ${name} else platz end,
+                         platz_typ = case when ${mitName} then ${typ} else platz_typ end,
+                         ortschaft = coalesce(${ortschaft}, ortschaft)
+                     where id = ${id} and geraet_id = ${geraet.id} returning id, lat, lng, ortschaft, platz, platz_typ`;
+  } else if (body?.ziel === "foto") {
+    rows = await sql`update privat.tour_fotos
+                     set platz = case when ${mitName} then ${name} else platz end,
+                         platz_typ = case when ${mitName} then ${typ} else platz_typ end,
+                         ortschaft = coalesce(${ortschaft}, ortschaft)
+                     where id = ${id} and geraet_id = ${geraet.id} returning id, lat, lng, ortschaft, platz, platz_typ`;
+  } else return json({ fehler: "Ziel fehlt" }, 400);
+  if (!rows.length) return json({ fehler: "nicht gefunden" }, 404);
+  const r = rows[0];
+  // Falls die Ortschaft noch fehlt (z. B. alte Einträge), auf dem Server versuchen
+  if (!r.ortschaft && r.lat != null) nebenbei(ortschaftNachtragen(body.ziel, id, r.lat, r.lng));
+  return json({ ok: true, platz: r.platz, platz_typ: r.platz_typ, ortschaft: r.ortschaft });
 }
 
 async function kommentareFuerFahrer(url: URL) {
@@ -496,7 +587,7 @@ async function kommentareFuerFahrer(url: URL) {
   if (!geraet) return json({ fehler: "unbekanntes Gerät" }, 403);
   const seit = Math.max(0, Math.floor(Number(url.searchParams.get("kommentare_seit")) || 0));
   const rows = await sql`
-    select k.id, k.erstellt_am, k.tag::text as tag, k.name, k.text, k.foto_id, k.vom_fahrer, k.art, k.lat, k.lng, f.aufgenommen_am as foto_t
+    select k.id, k.erstellt_am, k.tag::text as tag, k.name, k.text, k.foto_id, k.vom_fahrer, k.art, k.lat, k.lng, k.ortschaft, k.platz, k.platz_typ, f.aufgenommen_am as foto_t
     from privat.tour_kommentare k
     left join privat.tour_fotos f on f.id = k.foto_id
     where k.geraet_id = ${geraet.id} and k.tag >= ${geraet.heute}::date - 1 and k.id > ${seit}
@@ -670,6 +761,7 @@ async function fotoHochladen(req: Request, url: URL) {
     values (${geraet.id}, ${zeit}, ${lat}, ${lng}, ${titel},
             ${new Uint8Array(await bild.arrayBuffer())}, ${new Uint8Array(await vorschau.arrayBuffer())})
     returning id`;
+  if (lat != null && lng != null) nebenbei(ortschaftNachtragen("foto", Number(neu.id), lat, lng));
   return json({ ok: true, id: Number(neu.id), lat, lng, ort: ortQuelle, zeit });
 }
 
@@ -698,6 +790,8 @@ Deno.serve(async (req) => {
     if (req.method === "POST" && url.searchParams.has("gpx")) return await gpxHochladen(req, url);
     if (req.method === "POST" && url.searchParams.has("gpx_entfernen")) return await gpxEntfernen(req, url);
     if (req.method === "GET" && url.searchParams.has("gpx_liste") && url.searchParams.has("id")) return await gpxListe(url);
+    if (req.method === "GET" && url.searchParams.has("orte") && url.searchParams.has("id")) return await orteLiefern(url);
+    if (req.method === "POST" && url.searchParams.has("ort_setzen")) return await ortSetzen(req, url);
     if (req.method === "POST" && url.searchParams.has("kommentar")) return await kommentarSchreiben(req, url);
     if (req.method === "POST" && url.searchParams.has("reaktion")) return await reaktionUmschalten(req, url);
     if (req.method === "GET" && url.searchParams.has("kommentare") && url.searchParams.has("id")) return await kommentareFuerFahrer(url);

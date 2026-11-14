@@ -155,6 +155,12 @@
   .meldung { justify-self: center; display: flex; align-items: center; gap: 8px; border: 0; cursor: pointer;
     background: linear-gradient(135deg, var(--lava), var(--lava-dunkel)); color: #fff; border-radius: 999px; padding: 6px 14px; font-weight: 650; font-size: 14px; }
   .meldung small { color: rgba(255,255,255,.8); font-weight: 400; }
+  .meldung-zeile { justify-self: center; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 6px; max-width: 100%; }
+  .maps { text-decoration: none; font-size: 13px; font-weight: 600; background: var(--karte); border: 1px solid var(--linie); border-radius: 999px;
+    padding: 5px 10px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .stationen { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 8px 16px 0; font-size: 13px; color: var(--leise); }
+  .stationen span { white-space: nowrap; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  .stationen b { color: var(--text); font-weight: 600; }
   #k-form input { width: 100%; border: 1px solid var(--linie); border-radius: 12px; padding: 11px 12px; font: inherit; background: var(--karte); color: var(--text); }
   .k-zeile { display: flex; gap: 8px; }
   .k-zeile input { flex: 1; min-width: 0; }
@@ -184,6 +190,7 @@
   #gross-foto img.bild { max-width: 100%; max-height: calc(100% - 190px); object-fit: contain; border-radius: 10px; }
   #gross-foto .unter { margin-top: 12px; text-align: center; max-width: 640px; width: 100%; }
   #gross-foto .unter small { color: #bbb; }
+  #gross-foto .maps { display: inline-block; margin-left: 8px; background: rgba(255,255,255,.15); border-color: rgba(255,255,255,.25); color: #fff; padding: 3px 10px; }
   #gross-foto .zu, #gross-foto .pfeil { position: absolute; border: 0; background: rgba(255,255,255,.15); color: #fff;
     width: 48px; height: 48px; border-radius: 50%; font-size: 24px; cursor: pointer; }
   #gross-foto .zu { top: max(14px, env(safe-area-inset-top)); right: 14px; }
@@ -339,7 +346,7 @@
   <button class="pfeil zurueck" type="button" aria-label="Vorheriges Foto">‹</button>
   <button class="pfeil vor" type="button" aria-label="Nächstes Foto">›</button>
   <img class="bild" alt="">
-  <div class="unter"><div class="text"></div><small class="zeit"></small>
+  <div class="unter"><div class="text"></div><small class="zeit"></small><a class="maps" target="_blank" rel="noopener" hidden>🗺️ Google Maps</a>
     <div class="reakt"></div>
     <div class="foto-k"></div>
     <button class="k-knopf" type="button">💬 Kommentieren</button></div>
@@ -420,6 +427,7 @@
   let alle = [], punkte = [];
   let fotos = [], kommentare = [];
   let reaktionen = {};          // "foto:1" -> { "❤️": {anzahl, ich} }
+  let orte = {}, orteText = ""; // "kommentar:5" -> { ortschaft, platz, platz_typ }
   let reaktionenText = "";
   const fotoMarker = {}, meldungMarker = {};
   let cursor = null, fotoCursor = 0, kCursor = 0;
@@ -605,8 +613,9 @@
     if (!m || !istHeute()) return null;
     const mt = new Date(m.t).getTime(), alter = Date.now() - mt;
     const bewegt = punkte.some((p) => zeit(p) > mt + 2 * 60000 && (p.kmh ?? 0) > 10);
-    if (PAUSE_ARTEN[m.art] && alter < 90 * 60000 && !bewegt) return { text: PAUSE_ARTEN[m.art], seit: mt };
-    if (m.art === "angekommen" && alter < 6 * 3600000 && !bewegt) return { text: "🏁 Angekommen", seit: mt };
+    const o = ortVon("kommentar", m), wo = o.platz ? " · " + kuerzen(o.platz, 26) : o.ortschaft ? " · " + kuerzen(o.ortschaft, 22) : "";
+    if (PAUSE_ARTEN[m.art] && alter < 90 * 60000 && !bewegt) return { text: PAUSE_ARTEN[m.art] + wo, seit: mt };
+    if (m.art === "angekommen" && alter < 6 * 3600000 && !bewegt) return { text: "🏁 Angekommen" + wo, seit: mt };
     return null;
   }
 
@@ -802,7 +811,7 @@
     neuLaden();
   }
   function neuLaden() {
-    alle = []; punkte = []; fotos = []; kommentare = []; reaktionen = {}; reaktionenText = "";
+    alle = []; punkte = []; fotos = []; kommentare = []; reaktionen = {}; reaktionenText = ""; orte = {}; orteText = "";
     cursor = null; fotoCursor = 0; kCursor = 0;
     streckenGruppe.clearLayers(); fotoGruppe.clearLayers(); meldungGruppe.clearLayers(); gipfelGruppe.clearLayers();
     gpxInfo = null;
@@ -897,6 +906,17 @@
         zahl(t.hoehe_max ? tausender(t.hoehe_max) + " m" : "–", "höchster Punkt"));
       k.appendChild(z);
       s.appendChild(k);
+      const st = (t.stationen || []).filter((x) => x.platz || x.ortschaft);
+      if (st.length) {
+        const leiste = el("div", "stationen");
+        for (const x of st) {
+          const sp = el("span");
+          sp.append((x.text.split(" ")[0] || "📍") + " " + uhr(x.t) + " ", el("b", null, x.platz || x.ortschaft));
+          sp.title = x.text + (x.platz && x.ortschaft ? " · " + x.ortschaft : "");
+          leiste.appendChild(sp);
+        }
+        s.appendChild(leiste);
+      }
       for (const zi of t.zitate || []) {
         const q = el("blockquote", null, "„" + zi.text + "“");
         q.appendChild(el("small", null, "— " + (zi.fahrer ? "🏍️ " : "") + zi.name));
@@ -917,6 +937,44 @@
   }
   $("buch-knopf").onclick = () => { buchZeichnen(); $("buch").classList.add("zeigen"); $("buch").scrollTop = 0; tageLaden(); };
   $("buch").querySelector(".zu").onclick = () => $("buch").classList.remove("zeigen");
+
+  // ---------- Orte von Meldungen und Fotos ----------
+  const TYP_EMOJI = { restaurant: "🍽️", fast_food: "🍔", cafe: "☕", bar: "🍸", pub: "🍺", biergarten: "🍺", ice_cream: "🍦",
+    fuel: "⛽", hotel: "🏨", guest_house: "🏡", apartment: "🏡", hostel: "🏨", viewpoint: "🌄", attraction: "⭐", museum: "🏛️",
+    picnic_site: "🌳", peak: "🗻", volcano: "🌋", beach: "🏖️" };
+  const kuerzen = (t, n) => (t.length > n ? t.slice(0, n - 1) + "…" : t);
+  function orteSetzen(liste) {
+    const neu = {};
+    for (const o of liste || []) neu[o.typ + ":" + o.id] = { ortschaft: o.ortschaft, platz: o.platz, platz_typ: o.platz_typ };
+    const text = JSON.stringify(neu);
+    if (text === orteText) return false;
+    orte = neu; orteText = text;
+    return true;
+  }
+  // Ort eines Eintrags: aktueller Stand vom Server, sonst was beim Laden mitkam
+  function ortVon(typ, x) {
+    return orte[typ + ":" + x.id] || { ortschaft: x.ortschaft || null, platz: x.platz || null, platz_typ: x.platz_typ || null };
+  }
+  function ortText(o) {
+    if (o.platz) return (TYP_EMOJI[o.platz_typ] || "📍") + " " + o.platz + (o.ortschaft ? ", " + o.ortschaft : "");
+    return o.ortschaft ? "📍 bei " + o.ortschaft : "";
+  }
+  // Google Maps: mit gewähltem Lokal dessen Seite (Bewertungen, Fotos), sonst der Punkt auf der Karte
+  function mapsUrl(o, lat, lng) {
+    const q = o.platz ? o.platz + (o.ortschaft ? ", " + o.ortschaft : "") : lat.toFixed(5) + "," + lng.toFixed(5);
+    return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+  }
+  function mapsLink(o, lat, lng, text) {
+    const a = el("a", "maps", (text || "🗺️ Maps") + " ↗");
+    a.href = mapsUrl(o, lat, lng); a.target = "_blank"; a.rel = "noopener";
+    a.title = "In Google Maps öffnen";
+    a.onclick = (e) => e.stopPropagation();
+    return a;
+  }
+  function meldungTooltip(k) {
+    const t = ortText(ortVon("kommentar", k));
+    return k.text + " · " + uhr(k.t) + (t ? "<br>" + t.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]) : "");
+  }
 
   // ---------- Reaktionen ----------
   const rKey = (typ, id) => typ + ":" + id;
@@ -971,7 +1029,10 @@
     fotoleisteZeichnen();
     if ($("gross-foto").classList.contains("zeigen") && aktuellesFoto) {
       $("gross-foto").querySelector(".reakt").replaceWith(reaktionsLeiste("foto", aktuellesFoto, true));
+      const f = fotos.find((x) => x.id === aktuellesFoto);
+      if (f) fotoOrtZeigen(f);
     }
+    if (!replayAktiv) meldungenZeichnen();
   }
 
   // ---------- Fotos ----------
@@ -1011,13 +1072,19 @@
     const box = $("gross-foto");
     box.querySelector("img.bild").src = fotoUrl(f.id, false);
     box.querySelector(".text").textContent = f.titel || "";
-    box.querySelector(".zeit").textContent = uhr(f.t) + " Uhr";
+    fotoOrtZeigen(f);
     box.querySelector(".reakt").replaceWith(reaktionsLeiste("foto", f.id, true));
     box.querySelector(".zurueck").style.visibility = i > 0 ? "visible" : "hidden";
     box.querySelector(".vor").style.visibility = i < fotos.length - 1 ? "visible" : "hidden";
     fotoKommentareZeigen();
     box.classList.add("zeigen");
     if (f.lat != null && !replayAktiv) { folgen = false; $("folgen").classList.remove("an"); karte.setView([f.lat, f.lng], Math.max(karte.getZoom(), 14)); }
+  }
+  function fotoOrtZeigen(f) {
+    const box = $("gross-foto"), o = ortVon("foto", f), ot = ortText(o), a = box.querySelector("a.maps");
+    box.querySelector(".zeit").textContent = uhr(f.t) + " Uhr" + (ot ? " · " + ot : "");
+    a.hidden = f.lat == null;
+    if (f.lat != null) a.href = mapsUrl(o, f.lat, f.lng);
   }
   function fotoBlaettern(r) {
     const i = fotos.findIndex((f) => f.id === aktuellesFoto);
@@ -1052,10 +1119,11 @@
       if (!k.art || k.lat == null) continue;
       sichtbar.add(k.id);
       if (meldungMarker[k.id]) continue;
-      const emoji = Array.from(k.text)[0] || "📍";
+      const emoji = k.text.split(" ")[0] || "📍";
       const icon = L.divIcon({ className: "", html: '<div class="meldung-pin">' + emoji + "</div>", iconSize: [34, 34], iconAnchor: [4, 34] });
-      meldungMarker[k.id] = L.marker([k.lat, k.lng], { icon, zIndexOffset: 400 }).addTo(meldungGruppe).bindTooltip(k.text + " · " + uhr(k.t));
+      meldungMarker[k.id] = L.marker([k.lat, k.lng], { icon, zIndexOffset: 400 }).addTo(meldungGruppe).bindTooltip(meldungTooltip(k));
     }
+    for (const k of kommentare) if (meldungMarker[k.id]) meldungMarker[k.id].setTooltipContent(meldungTooltip(k));
     for (const id in meldungMarker) if (!sichtbar.has(Number(id))) { meldungGruppe.removeLayer(meldungMarker[id]); delete meldungMarker[id]; }
   }
   function kommentareZeichnen() {
@@ -1064,11 +1132,19 @@
     liste.textContent = "";
     for (const k of kommentare) {
       if (k.art) {
+        const zeile = el("div", "meldung-zeile");
         const m = el("button", "meldung");
         m.type = "button";
+        const o = ortVon("kommentar", k);
         m.append("🏍️ " + k.text + " ", el("small", null, uhr(k.t)));
-        if (k.lat != null) m.onclick = () => { folgen = false; $("folgen").classList.remove("an"); karte.setView([k.lat, k.lng], 15); };
-        liste.appendChild(m);
+        zeile.appendChild(m);
+        if (k.lat != null) {
+          m.onclick = () => { folgen = false; $("folgen").classList.remove("an"); karte.setView([k.lat, k.lng], 15); };
+          // Ort als eigener Link zu Google Maps (Lokal mit Bewertungen bzw. Punkt auf der Karte)
+          if (o.platz || o.ortschaft) zeile.appendChild(mapsLink(o, k.lat, k.lng,
+            o.platz ? (TYP_EMOJI[o.platz_typ] || "📍") + " " + o.platz : "📍 " + o.ortschaft));
+        }
+        liste.appendChild(zeile);
         continue;
       }
       const e = el("div", "k" + (k.fahrer ? " fahrer" : ""));
@@ -1215,7 +1291,7 @@
     for (const k of kommentare) {
       if (!k.art || k.lat == null || r.gezeigt.has("k" + k.id) || new Date(k.t).getTime() > zeitJetzt) continue;
       r.gezeigt.add("k" + k.id);
-      const icon = L.divIcon({ className: "", html: '<div class="meldung-pin">' + (Array.from(k.text)[0] || "📍") + "</div>", iconSize: [34, 34], iconAnchor: [4, 34] });
+      const icon = L.divIcon({ className: "", html: '<div class="meldung-pin">' + (k.text.split(" ")[0] || "📍") + "</div>", iconSize: [34, 34], iconAnchor: [4, 34] });
       L.marker([k.lat, k.lng], { icon, zIndexOffset: 400 }).addTo(replaySpur).bindTooltip(k.text);
       if (r.laeuft) hinweis("🏍️ " + k.text);
     }
@@ -1330,7 +1406,8 @@
       }
       if (d.kommentare_cursor) kCursor = d.kommentare_cursor;
       const rNeu = reaktionenSetzen(d.reaktionen);
-      if (kNeu || rNeu || ersterAbruf) reaktionenNeuZeichnen();
+      const oNeu = orteSetzen(d.orte);
+      if (kNeu || rNeu || oNeu || ersterAbruf) reaktionenNeuZeichnen();
       ersterAbruf = false;
       fehlerZaehler = 0;
       anzeigen();
