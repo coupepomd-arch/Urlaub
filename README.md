@@ -55,8 +55,9 @@ damit Kurven und Kehren sauber aufgezeichnet werden.
 
 `https://<github-pages-adresse>/foto.html#<sendeschlüssel>` auf dem Handy öffnen (am besten zum
 Startbildschirm hinzufügen). Fotos werden vor dem Hochladen verkleinert (max. 1600 px) und in
-`privat.tour_fotos` gespeichert. Aufnahmezeit und GPS werden aus den EXIF-Daten des Fotos gelesen
-(sonst Dateidatum). Ort: GPS aus dem Foto, sonst der Streckenpunkt zur Aufnahmezeit (± 15 Min.), sonst
+`privat.tour_fotos` gespeichert. Aufnahmezeit und GPS werden aus den EXIF-Daten des Fotos gelesen.
+Fehlt die Aufnahmezeit (z. B. Foto über WhatsApp, Screenshot, Export aus einer anderen App), fragt die Seite vor dem
+Hochladen nach Tag und Uhrzeit, damit das Foto an der richtigen Stelle der Strecke landet. Ort: GPS aus dem Foto, sonst der Streckenpunkt zur Aufnahmezeit (± 15 Min.), sonst
 der Standort des Handys beim Hochladen. Fotos dürfen bis zu 60 Tage alt sein. Die hochgeladenen,
 verkleinerten Bilder enthalten keine EXIF-Daten mehr.
 

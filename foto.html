@@ -79,6 +79,14 @@
   #meldung { display: none; text-align: center; padding: 60px 10px; }
   .ort-wahl { background: var(--karte); border-radius: 16px; padding: 12px; margin: 4px 0 12px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
   #liste .ort-wahl { flex-basis: 100%; margin: 4px 0 0; box-shadow: none; background: var(--bg); }
+  .zeit-frage { flex-basis: 100%; background: var(--bg); border-radius: 12px; padding: 10px 12px; }
+  .zeit-frage p { margin: 0 0 8px; font-size: 14px; }
+  .zeit-frage .zeile { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .zeit-frage .zeile .haupt { grid-column: 1 / -1; }
+  .zeit-frage select, .zeit-frage input { width: 100%; min-width: 0; border: 1px solid var(--linie); border-radius: 10px; padding: 10px; font: inherit; background: var(--karte); color: var(--text); }
+  #liste .zeit-frage button { border: 0; border-radius: 10px; padding: 10px 14px; font: inherit; font-weight: 650; cursor: pointer; }
+  #liste .zeit-frage .haupt { background: var(--akzent); color: #fff; }
+  #liste .zeit-frage .neben { margin-top: 8px; width: 100%; background: var(--karte); color: var(--text); border: 1px solid var(--linie); }
   .ort-wahl h3 { font-size: 16px; margin: 0 0 4px; }
   .ort-wahl .info { color: var(--leise); font-size: 14px; margin: 0 0 8px; }
   .ort-wahl .orte { display: grid; gap: 6px; }
@@ -636,6 +644,40 @@
     } catch (e) {}
   }
 
+  // Fragt im Listeneintrag, wann das Foto gemacht wurde (Tag + Uhrzeit, Zeitzone des Handys)
+  function zeitErfragen(li, vorschlag) {
+    return new Promise((fertig) => {
+      const box = neu("div", "zeit-frage");
+      const v = new Date(vorschlag);
+      box.append(neu("p", null, "Im Foto steht keine Aufnahmezeit (z. B. weil es über WhatsApp kam). Wann hast du es gemacht?"));
+      const zeile = neu("div", "zeile");
+      const tag = neu("select"); tag.setAttribute("aria-label", "Tag");
+      for (let i = 0; i < 4; i++) {
+        const d = new Date(); d.setDate(d.getDate() - i);
+        const o = neu("option", null, i === 0 ? "Heute" : i === 1 ? "Gestern" : d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "short" }));
+        o.value = i;
+        tag.appendChild(o);
+      }
+      const tageZurueck = Math.round((new Date().setHours(0, 0, 0, 0) - new Date(vorschlag).setHours(0, 0, 0, 0)) / 864e5);
+      tag.value = String(Math.min(3, Math.max(0, tageZurueck)));
+      const uhrzeit = neu("input"); uhrzeit.type = "time"; uhrzeit.setAttribute("aria-label", "Uhrzeit");
+      uhrzeit.value = String(v.getHours()).padStart(2, "0") + ":" + String(v.getMinutes()).padStart(2, "0");
+      const ok = neu("button", "haupt", "Hochladen"); ok.type = "button";
+      zeile.append(tag, uhrzeit, ok);
+      const jetzt = neu("button", "neben", "Gerade eben gemacht"); jetzt.type = "button";
+      box.append(zeile, jetzt);
+      li.appendChild(box);
+      const ende = (ms) => { box.remove(); fertig(ms); };
+      jetzt.onclick = () => ende(Date.now());
+      ok.onclick = () => {
+        const [h, m] = (uhrzeit.value || "12:00").split(":").map(Number);
+        const d = new Date(); d.setDate(d.getDate() - Number(tag.value)); d.setHours(h, m, 0, 0);
+        ende(Math.min(d.getTime(), Date.now()));
+      };
+      box.scrollIntoView({ behavior: "smooth", block: "center" });
+    });
+  }
+
   async function hochladen(datei, titel) {
     const li = document.createElement("li");
     li.innerHTML = '<img alt=""><div class="info"><div class="titel"></div><div class="status">wird vorbereitet …</div></div>';
@@ -650,12 +692,16 @@
       li.querySelector("img").src = URL.createObjectURL(vorschau);
     } catch (e) { status("Bild konnte nicht gelesen werden", "fehler"); return; }
 
-    // Aufnahmezeit: aus den Fotodaten, sonst Änderungsdatum der Datei, sonst jetzt
+    // Aufnahmezeit aus den Fotodaten. Fehlt sie (z. B. Foto aus WhatsApp, Screenshot, 360°-Export), nachfragen –
+    // sonst landet das Foto beim Hochladen-Ort statt an der Stelle der Strecke, an der es gemacht wurde.
     const exif = await exifLesen(datei);
     const exifMs = exifZeit(exif);
-    const lm = datei.lastModified;
-    const zeit = exifMs ?? (plausibel(lm) ? lm : Date.now());
-    const zeitQuelle = exifMs ? "Aufnahmezeit aus Foto" : "Zeit geschätzt";
+    let zeit = exifMs, zeitQuelle = "Aufnahmezeit aus Foto";
+    if (zeit == null) {
+      status("⚠️ Keine Aufnahmezeit im Foto", "fehler");
+      zeit = await zeitErfragen(li, plausibel(datei.lastModified) ? datei.lastModified : Date.now());
+      zeitQuelle = "Zeit von dir";
+    }
 
     for (let versuch = 1; versuch <= 6; versuch++) {
       status(versuch === 1 ? "wird gesendet …" : "neuer Versuch (" + versuch + "/6) …");
