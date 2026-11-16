@@ -224,7 +224,7 @@
     try {
       const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=de&lat=" + lat.toFixed(5) + "&lon=" + lng.toFixed(5), mitZeit(6000));
       const a = (await r.json()).address || {};
-      const n = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || a.county;
+      const n = a.village || a.hamlet || a.town || a.suburb || a.city_district || a.city || a.municipality || a.county;
       if (n) return n;
     } catch (e) {}
     try {

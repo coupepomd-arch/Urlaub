@@ -12,7 +12,7 @@ export async function ortschaftHolen(lat: number, lng: number): Promise<string |
       + lat.toFixed(5) + "&lon=" + lng.toFixed(5), { headers: KENNUNG, signal: AbortSignal.timeout(5000) });
     if (r.ok) {
       const a = (await r.json())?.address ?? {};
-      const name = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || a.county;
+      const name = a.village || a.hamlet || a.town || a.suburb || a.city_district || a.city || a.municipality || a.county;
       if (name) return kuerzen(name);
     } else console.error("Nominatim", r.status);
   } catch (e) { console.error("Nominatim", e); }

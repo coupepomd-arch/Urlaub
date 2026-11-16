@@ -758,7 +758,7 @@
         const r = await fetch("https://nominatim.openstreetmap.org/reverse?format=jsonv2&zoom=14&accept-language=de&lat="
           + p.lat.toFixed(4) + "&lon=" + p.lng.toFixed(4));
         const d = await r.json(), a = d.address || {};
-        ortsname = a.village || a.town || a.city || a.hamlet || a.suburb || a.municipality || a.county || null;
+        ortsname = a.village || a.hamlet || a.town || a.suburb || a.city_district || a.city || a.municipality || a.county || null;
       } catch (e) {}
     }
     const teile = [];
@@ -959,10 +959,11 @@
     if (o.platz) return (TYP_EMOJI[o.platz_typ] || "📍") + " " + o.platz + (o.ortschaft ? ", " + o.ortschaft : "");
     return o.ortschaft ? "📍 bei " + o.ortschaft : "";
   }
-  // Google Maps: mit gewähltem Lokal dessen Seite (Bewertungen, Fotos), sonst der Punkt auf der Karte
+  // Mit Lokal: Namenssuche rund um die gespeicherte Position (eindeutig, auch wenn es den Namen mehrfach gibt)
   function mapsUrl(o, lat, lng) {
-    const q = o.platz ? o.platz + (o.ortschaft ? ", " + o.ortschaft : "") : lat.toFixed(5) + "," + lng.toFixed(5);
-    return "https://www.google.com/maps/search/?api=1&query=" + encodeURIComponent(q);
+    const p = lat.toFixed(5) + "," + lng.toFixed(5);
+    if (o.platz) return "https://www.google.com/maps/search/" + encodeURIComponent(o.platz) + "/@" + p + ",17z";
+    return "https://www.google.com/maps/search/?api=1&query=" + p;
   }
   function mapsLink(o, lat, lng, text) {
     const a = el("a", "maps", (text || "🗺️ Maps") + " ↗");
