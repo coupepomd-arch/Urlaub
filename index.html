@@ -227,6 +227,16 @@
   #buch header small { color: var(--leise); text-transform: uppercase; letter-spacing: .4px; font-size: 12px; font-weight: 600; }
   #buch .zu { border: 0; border-radius: 50%; width: 44px; height: 44px; font-size: 20px; background: var(--karte); cursor: pointer; box-shadow: var(--schatten); }
   .seite .titelbild .ueber em { font-style: normal; font-size: 12px; background: rgba(255,255,255,.22); border-radius: 999px; padding: 2px 8px; margin-left: 6px; }
+  .fakten { background: var(--karte); border-radius: 22px; margin-bottom: 18px; box-shadow: var(--schatten); overflow: hidden; }
+  .fakten .kopf { padding: 22px 18px 18px; color: #fff; background: linear-gradient(135deg, var(--lava), #7c2d12); }
+  .fakten .kopf b { display: block; font-size: 30px; letter-spacing: -.6px; line-height: 1.1; }
+  .fakten .kopf span { font-size: 14px; opacity: .9; }
+  .fakten h3 { margin: 18px 16px 10px; font-size: 18px; }
+  .fakten .liste { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; padding: 0 16px; }
+  .fakten .fakt { background: var(--bg); border-radius: 14px; padding: 12px 14px; }
+  .fakten .fakt b { display: block; font-size: 20px; letter-spacing: -.3px; color: var(--lava); margin-bottom: 2px; }
+  .fakten .fakt span { font-size: 14px; color: var(--text); }
+  .fakten .ende { padding: 18px 16px 20px; text-align: center; color: var(--leise); font-size: 13px; }
   #buch-summe { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 20px; }
   #buch-summe div { background: var(--karte); border-radius: 14px; padding: 12px; }
   #buch-summe b { display: block; font-size: 22px; letter-spacing: -.3px; }
@@ -434,7 +444,7 @@
   let folgen = true, ersteAnsicht = true, ersterAbruf = true, fehlerZaehler = 0;
   const eigeneKommentare = new Set();
   let kFoto = null;
-  let tag = null, heute = null, tage = [];
+  let tag = null, heute = null, tage = [], fakten = null;
   try { const t = new URLSearchParams(location.search).get("tag"); if (/^\d{4}-\d{2}-\d{2}$/.test(t || "")) tag = t; } catch (e) {}
   const istHeute = () => !tag || tag === heute;
   let replayAktiv = false;
@@ -835,7 +845,7 @@
       const r = await fetch(API + "?ansicht=" + encodeURIComponent(token) + "&tage=1", { cache: "no-store" });
       if (!r.ok) return;
       const d = await r.json();
-      tage = d.tage; heute = d.heute;
+      tage = d.tage; heute = d.heute; fakten = d.fakten || null;
       titelSetzen(d.titel);
       tagleisteZeichnen();
       if ($("buch").classList.contains("zeigen")) buchZeichnen();
@@ -934,6 +944,27 @@
       s.onclick = () => { $("buch").classList.remove("zeigen"); wechsleTag(t.datum); };
       liste.appendChild(s);
     }
+    if (fakten && fakten.gruppen) liste.appendChild(faktenSeite(fakten));
+  }
+  // Letzte Seite: Fun Facts (Texte kommen aus der Datenbank)
+  function faktenSeite(f) {
+    const seite = el("section", "fakten");
+    const kopf = el("div", "kopf");
+    kopf.append(el("b", null, f.titel || "🤓 Fun Facts"));
+    if (f.untertitel) kopf.append(el("span", null, f.untertitel));
+    seite.appendChild(kopf);
+    for (const g of f.gruppen) {
+      seite.appendChild(el("h3", null, g.titel));
+      const liste = el("div", "liste");
+      for (const e of g.eintraege || []) {
+        const d = el("div", "fakt");
+        d.append(el("b", null, e.wert), el("span", null, e.text));
+        liste.appendChild(d);
+      }
+      seite.appendChild(liste);
+    }
+    seite.appendChild(el("div", "ende", "🏁 Ende der Reise – danke fürs Mitfiebern! 🏍️🌋"));
+    return seite;
   }
   $("buch-knopf").onclick = () => { buchZeichnen(); $("buch").classList.add("zeigen"); $("buch").scrollTop = 0; tageLaden(); };
   $("buch").querySelector(".zu").onclick = () => $("buch").classList.remove("zeigen");

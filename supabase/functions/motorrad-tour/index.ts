@@ -418,10 +418,13 @@ async function tageListe(g: { id: number; zeitzone: string; reise_start: string 
     left join linie l using (tag) left join titelfoto tf using (tag) left join zitate zi using (tag)
     left join gx using (tag) left join stationen st using (tag)
     order by t.tag`;
+  // Fun-Facts-Seite am Ende des Reisebuchs (Texte in privat.tour_geraete.fakten, nicht im öffentlichen Code)
+  const [{ fakten }] = await sql`select fakten from privat.tour_geraete where id = ${g.id}`;
   return json({
     titel: g.titel,
     heute: g.heute,
     reise_start: g.reise_start,
+    fakten: fakten ?? null,
     tage: rows.map((r) => ({ ...r, foto_ids: (r.foto_ids as unknown[]).map(Number), titelfoto: r.titelfoto === null ? null : Number(r.titelfoto) })),
   });
 }

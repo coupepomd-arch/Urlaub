@@ -101,6 +101,9 @@ Kommentar ausblenden: `update privat.tour_kommentare set tag = date '2000-01-01'
 - **App-Symbole**: Live-Seite und Fahrer-Seite lassen sich zum Startbildschirm hinzufügen
   (`manifest.webmanifest`, `fahrer.webmanifest`, Bilder in `bilder/`). Der Schlüssel wird beim ersten Öffnen
   im Browser gespeichert.
+- **Fun Facts** als letzte Seite im Reisebuch: Texte in `privat.tour_geraete.fakten` (JSON mit `titel`, `untertitel`,
+  `gruppen[].titel`, `gruppen[].eintraege[].wert/text`), damit Namen und Zitate nicht im öffentlichen Code stehen.
+  Ohne Eintrag (`null`) erscheint die Seite nicht.
 - Reisetitel: `update privat.tour_geraete set titel = '…' where id = 1;`
 - Fahrername für Antworten und Meldungen von der Fahrer-Seite: `update privat.tour_geraete set fahrer_name = '…' where id = 1;`
   (ein Trigger `privat.fahrer_name_setzen` setzt ihn beim Speichern ein)
